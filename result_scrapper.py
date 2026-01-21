@@ -113,6 +113,16 @@ def sanitize_text(text):
     """Cleans and standardizes text for reliable matching."""
     return re.sub(r'[^a-z0-9]', '', text.lower())
 
+def format_roll_number(raw_roll):
+    """Extracts letters and numbers to format a class roll."""
+    if not raw_roll:
+        return ''
+    letters = ''.join(re.findall(r'[a-zA-Z]+', raw_roll))
+    numbers = ''.join(re.findall(r'\d+', raw_roll))
+    if letters and numbers:
+        return f"{letters.upper()} {numbers}"
+    return raw_roll
+
 def parse_result_html(html_content):
     """
     Parses the HTML content of a student's result page to extract key information.
@@ -259,11 +269,16 @@ def main():
             print(f"Found on row {target_row_num}. Checking for empty cells...")
             update_requests = []
 
+
+            # Format name and roll before preparing the update.
+            student_name = parsed_data.get('Name', '').title()
+            student_roll = format_roll_number(parsed_data.get('Roll', ''))
+
             # Prepare data for batch update, writing only to empty cells.
-            if not existing_row_data[name_col_index] and parsed_data.get('Name'):
-                update_requests.append({'range': f'B{target_row_num}', 'values': [[parsed_data.get('Name')]]})
-            if not existing_row_data[roll_col_index] and parsed_data.get('Roll'):
-                update_requests.append({'range': f'C{target_row_num}', 'values': [[parsed_data.get('Roll')]]})
+            if not existing_row_data[name_col_index] and student_name:
+                update_requests.append({'range': f'B{target_row_num}', 'values': [[student_name]]})
+            if not existing_row_data[roll_col_index] and student_roll:
+                update_requests.append({'range': f'C{target_row_num}', 'values': [[student_roll]]})
             if not existing_row_data[gpa_col_index] and parsed_data.get('GPA'):
                 update_requests.append({'range': f'E{target_row_num}', 'values': [[parsed_data.get('GPA')]]})
             if not existing_row_data[cgpa_col_index] and parsed_data.get('CGPA'):
