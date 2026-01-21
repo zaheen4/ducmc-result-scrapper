@@ -74,23 +74,24 @@ SCOPES = [
 # WORKSHEET_NAME = 'PerCourse_L1T1'
 # WORKSHEET_NAME = 'PerCourse_L1T2'
 # WORKSHEET_NAME = 'PerCourse_L2T1'
-WORKSHEET_NAME = 'PerCourse_L2T2'
+# WORKSHEET_NAME = 'PerCourse_L2T2'
 # WORKSHEET_NAME = 'PerCourse_L3T1'
 # WORKSHEET_NAME = 'PerCourse_L3T2'
+WORKSHEET_NAME = 'Copy of PerCourse_L3T1'
 
 FORM_DATA = {
     "program": "B.Sc. in Computer Science and Engineering",
-    "session": "2021-2022",
+    "session": "2020-2021",
     # "exam": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Examination of 2022"
     # "exam": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2022"
     # "exam": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2023"
-    "exam": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2023"
+    # "exam": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2023"
     # "exam": ""
-    # "exam": ""
+    "exam": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2023 (New Curriculum)"
 }
-URL = 'http://cmc.du.ac.bd/result.php'
-START_REGI = 710
-END_REGI = 813
+URL = 'https://ducmc.du.ac.bd/result.php'
+START_REGI = 442    #710
+END_REGI = 508      #813
 
 # --- Environment-Specific Settings ---
 if IN_COLAB:
@@ -134,6 +135,8 @@ def parse_result_html(html_content):
             header_text = headers[0].get_text(strip=True)
             if "Student's Name" in header_text:
                 student_data['Name'] = row.find('td').get_text(strip=True)
+            elif "Class Roll" in header_text:
+                student_data['Roll'] = row.find('td').get_text(strip=True)
             elif "Registration" in header_text:
                 student_data['Reg'] = row.find('td').get_text(strip=True)
 
@@ -191,6 +194,8 @@ def main():
 
     # Dynamically find the column indices for required fields.
     try:
+        name_col_index = sheet_headers.index("Student's Name")
+        roll_col_index = sheet_headers.index("Student's ID")
         reg_col_index = sheet_headers.index('Reg. No.')
         gpa_col_index = sheet_headers.index('GPA')
         cgpa_col_index = sheet_headers.index('CGPA')
@@ -213,7 +218,7 @@ def main():
         driver = webdriver.Chrome(options=options)
     else:
         print("WebDriver: Initializing Firefox for local execution.")
-        driver = webdriver.Firefox(service=FirefoxService(GeckoDriverManager().install()), options=options)
+        driver = webdriver.Firefox(options=options)
 
     # --- Main processing loop ---
     for regi_num in range(START_REGI, END_REGI + 1):
@@ -255,6 +260,10 @@ def main():
             update_requests = []
 
             # Prepare data for batch update, writing only to empty cells.
+            if not existing_row_data[name_col_index] and parsed_data.get('Name'):
+                update_requests.append({'range': f'B{target_row_num}', 'values': [[parsed_data.get('Name')]]})
+            if not existing_row_data[roll_col_index] and parsed_data.get('Roll'):
+                update_requests.append({'range': f'C{target_row_num}', 'values': [[parsed_data.get('Roll')]]})
             if not existing_row_data[gpa_col_index] and parsed_data.get('GPA'):
                 update_requests.append({'range': f'E{target_row_num}', 'values': [[parsed_data.get('GPA')]]})
             if not existing_row_data[cgpa_col_index] and parsed_data.get('CGPA'):
