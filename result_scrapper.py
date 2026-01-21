@@ -10,18 +10,22 @@ import subprocess
 # Detects the execution environment by checking for Colab-specific modules.
 IN_COLAB = 'google.colab' in sys.modules
 
-if IN_COLAB:
-    print("✅ Detected Google Colab environment. Installing dependencies...")
-    
-    # Install Chromium
-    subprocess.run(["apt-get", "update"], check=True)
-    subprocess.run(["apt-get", "install", "-y", "chromium-browser"], check=True)
+def setup_environment():
+    """Installs dependencies if running in a Google Colab environment."""
+    if IN_COLAB:
+        print("✅ Detected Google Colab environment. Installing dependencies...")
+        
+        # Install Chromium
+        subprocess.run(["apt-get", "update"], check=True)
+        subprocess.run(["apt-get", "install", "-y", "chromium-browser"], check=True)
 
-    subprocess.run(["pip", "install", "selenium", "gspread==5.12.4", "oauth2client==4.1.3", "beautifulsoup4==4.12.3", "webdriver-manager==4.0.1"], check=True)
+        subprocess.run(["pip", "install", "selenium", "gspread==5.12.4", "oauth2client==4.1.3", "beautifulsoup4==4.12.3", "webdriver-manager==4.0.1"], check=True)
 
-    print("✅ Dependencies installed.")
-else:
-    print("✅ Detected local environment. Assuming dependencies are pre-installed.")
+        print("✅ Dependencies installed.")
+    else:
+        print("✅ Detected local environment. Assuming dependencies are pre-installed.")
+
+setup_environment()
 
 
 # ===================================================================
@@ -74,27 +78,29 @@ SCOPES = [
 # WORKSHEET_NAME = 'PerCourse_L1T1'
 # WORKSHEET_NAME = 'PerCourse_L1T2'
 # WORKSHEET_NAME = 'PerCourse_L2T1'
-WORKSHEET_NAME = 'PerCourse_L2T2'
+# WORKSHEET_NAME = 'PerCourse_L2T2'
 # WORKSHEET_NAME = 'PerCourse_L3T1'
 # WORKSHEET_NAME = 'PerCourse_L3T2'
+WORKSHEET_NAME = 'Copy of PerCourse_L3T1'
 
 FORM_DATA = {
     "program": "B.Sc. in Computer Science and Engineering",
-    "session": "2021-2022",
+    "session": "2020-2021",
     # "exam": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Examination of 2022"
     # "exam": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2022"
     # "exam": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2023"
-    "exam": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2023"
-    # "exam": ""
-    # "exam": ""
+    # "exam": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2023"
+    # "exam": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2024"
+
+    # "exam": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2023 (New Curriculum)"
 }
-URL = 'http://cmc.du.ac.bd/result.php'
-START_REGI = 710
-END_REGI = 813
+URL = 'https://ducmc.du.ac.bd/result.php'
+START_REGI = 710    #442
+END_REGI = 813      #508
 
 # --- Environment-Specific Settings ---
 if IN_COLAB:
-    from google.colab import drive
+    from google.colab import drive # type: ignore
     print("Mounting Google Drive to access credentials...")
     drive.mount('/content/drive', force_remount=True)
     # Defines the path for the credentials file stored in Google Drive.
@@ -111,6 +117,16 @@ else:
 def sanitize_text(text):
     """Cleans and standardizes text for reliable matching."""
     return re.sub(r'[^a-z0-9]', '', text.lower())
+
+def format_roll_number(raw_roll):
+    """Extracts letters and numbers to format a class roll."""
+    if not raw_roll:
+        return ''
+    letters = ''.join(re.findall(r'[a-zA-Z]+', raw_roll))
+    numbers = ''.join(re.findall(r'\d+', raw_roll))
+    if letters and numbers:
+        return f"{letters.upper()} {numbers}"
+    return raw_roll
 
 def parse_result_html(html_content):
     """
@@ -134,6 +150,8 @@ def parse_result_html(html_content):
             header_text = headers[0].get_text(strip=True)
             if "Student's Name" in header_text:
                 student_data['Name'] = row.find('td').get_text(strip=True)
+            elif "Class Roll" in header_text:
+                student_data['Roll'] = row.find('td').get_text(strip=True)
             elif "Registration" in header_text:
                 student_data['Reg'] = row.find('td').get_text(strip=True)
 
@@ -163,17 +181,16 @@ def parse_result_html(html_content):
                 })
     return student_data
 
+# ===================================================================
+# Core Logic Functions
+# ===================================================================
 
-# ===================================================================
-# Main Execution Logic
-# ===================================================================
-def main():
-    """Main execution function to run the scraper and update the sheet."""
+def get_worksheet():
+    """Authenticates with Google Sheets and returns the worksheet object."""
     print("Authenticating with Google Sheets...")
-    # For local execution, perform a sanity check for the credentials file.
     if not IN_COLAB and not os.path.exists(CREDENTIALS_FILE):
         print(f"FATAL ERROR: The credentials file ('{CREDENTIALS_FILE}') was not found in this directory.")
-        return
+        return None
 
     try:
         creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
@@ -181,111 +198,132 @@ def main():
         spreadsheet = client.open_by_url(GOOGLE_SHEET_URL)
         worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
         print(f"✅ Successfully connected to '{spreadsheet.title}' and selected worksheet '{worksheet.title}'.")
+        return worksheet
     except Exception as e:
         print(f"FATAL ERROR: Could not connect to Google Sheets. {e}")
-        return
+        return None
 
+def get_sheet_data(worksheet):
+    """Fetches and processes data from the worksheet."""
     print("Fetching sheet data for comparison...")
     all_sheet_values = worksheet.get_all_values()
     sheet_headers = all_sheet_values[0]
 
-    # Dynamically find the column indices for required fields.
     try:
-        reg_col_index = sheet_headers.index('Reg. No.')
-        gpa_col_index = sheet_headers.index('GPA')
-        cgpa_col_index = sheet_headers.index('CGPA')
-        retake_col_index = sheet_headers.index('Retake Courses')
+        header_indices = {
+            "name": sheet_headers.index("Student's Name"),
+            "roll": sheet_headers.index("Student's ID"),
+            "reg": sheet_headers.index('Reg. No.'),
+            "gpa": sheet_headers.index('GPA'),
+            "cgpa": sheet_headers.index('CGPA'),
+            "retake": sheet_headers.index('Retake Courses')
+        }
     except ValueError as e:
         print(f"FATAL ERROR: A required column header was not found in Row 1 of your sheet: {e}")
-        return
+        return None, None, None, None
 
-    all_reg_numbers_in_sheet = [row[reg_col_index] for row in all_sheet_values[1:]]
+    all_reg_numbers_in_sheet = [row[header_indices["reg"]] for row in all_sheet_values[1:]]
     course_name_map = {sanitize_text(header.split('\n')[0].strip()): i for i, header in enumerate(sheet_headers) if header.strip()}
+    
+    return header_indices, all_reg_numbers_in_sheet, course_name_map, all_sheet_values
 
-    # Initialize the appropriate WebDriver in headless mode.
+def initialize_webdriver():
+    """Initializes and returns the Selenium WebDriver."""
     options = Options()
     options.add_argument("--headless")
     if IN_COLAB:
         print("WebDriver: Initializing Chrome for Colab.")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        # options.binary_location = '/usr/bin/chromium-browser'  # Tell Selenium where Chrome is
         driver = webdriver.Chrome(options=options)
     else:
         print("WebDriver: Initializing Firefox for local execution.")
-        driver = webdriver.Firefox(service=FirefoxService(GeckoDriverManager().install()), options=options)
+        driver = webdriver.Firefox(options=options)
+    return driver
 
-    # --- Main processing loop ---
-    for regi_num in range(START_REGI, END_REGI + 1):
-        current_reg = str(regi_num)
-        print(f"\n--- Processing Registration No.: {current_reg} ---")
-        try:
-            driver.get(URL)
-            wait = WebDriverWait(driver, 15)
-            # Fill out the web form and submit.
-            Select(wait.until(EC.presence_of_element_located((By.ID, 'pro_id')))).select_by_visible_text(FORM_DATA['program'])
-            Select(wait.until(EC.presence_of_element_located((By.ID, 'sess_id')))).select_by_visible_text(FORM_DATA['session'])
-            exam_xpath = f"//select[@id='exam_id']/option[text()='{FORM_DATA['exam']}']"
-            wait.until(EC.element_to_be_clickable((By.XPATH, exam_xpath)))
-            Select(driver.find_element(By.ID, 'exam_id')).select_by_visible_text(FORM_DATA['exam'])
-            driver.find_element(By.ID, 'reg_no').send_keys(current_reg)
-            driver.find_element(By.XPATH, "//button[text()='Submit']").click()
-            wait.until(EC.presence_of_element_located((By.XPATH, "//h3[contains(text(), 'Result')]")))
-            time.sleep(0.5)
+def scrape_student_result(driver, reg_num):
+    """Scrapes the result for a single student."""
+    print(f"\n--- Processing Registration No.: {reg_num} ---")
+    try:
+        driver.get(URL)
+        wait = WebDriverWait(driver, 15)
+        
+        Select(wait.until(EC.presence_of_element_located((By.ID, 'pro_id')))).select_by_visible_text(FORM_DATA['program'])
+        Select(wait.until(EC.presence_of_element_located((By.ID, 'sess_id')))).select_by_visible_text(FORM_DATA['session'])
+        
+        exam_xpath = f"//select[@id='exam_id']/option[text()='{FORM_DATA['exam']}']"
+        wait.until(EC.element_to_be_clickable((By.XPATH, exam_xpath)))
+        Select(driver.find_element(By.ID, 'exam_id')).select_by_visible_text(FORM_DATA['exam'])
+        
+        driver.find_element(By.ID, 'reg_no').send_keys(reg_num)
+        driver.find_element(By.XPATH, "//button[text()='Submit']").click()
+        
+        wait.until(EC.presence_of_element_located((By.XPATH, "//h3[contains(text(), 'Result')]")))
+        time.sleep(0.5)
 
-            parsed_data = parse_result_html(driver.page_source)
+        parsed_data = parse_result_html(driver.page_source)
 
-            if not parsed_data or 'Reg' not in parsed_data:
-                print(f"Result not found or page is invalid for Reg No: {current_reg}.")
-                continue
+        if not parsed_data or 'Reg' not in parsed_data:
+            print(f"Result not found or page is invalid for Reg No: {reg_num}.")
+            return None
 
-            scraped_reg = parsed_data['Reg']
-            print(f"Found result for Reg No: {scraped_reg} (Name: {parsed_data.get('Name', 'N/A')})")
+        print(f"Found result for Reg No: {parsed_data['Reg']} (Name: {parsed_data.get('Name', 'N/A')})")
+        return parsed_data
 
-            # Match the scraped registration to a row in the Google Sheet.
-            try:
-                target_list_index = all_reg_numbers_in_sheet.index(scraped_reg)
-                target_row_num = target_list_index + 2
-                existing_row_data = all_sheet_values[target_list_index + 1]
-            except ValueError:
-                print(f"Could not find registration '{scraped_reg}' in the sheet. Skipping.")
-                continue
+    except TimeoutException:
+        print(f"No result found for {reg_num} (timeout).")
+        return None
+    except Exception as e:
+        print(f"An unexpected error occurred for {reg_num}: {e}")
+        return None
 
-            print(f"Found on row {target_row_num}. Checking for empty cells...")
-            update_requests = []
+def update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_reg_numbers_in_sheet, course_name_map, all_sheet_values):
+    """Updates the Google Sheet with the scraped student data."""
+    scraped_reg = parsed_data['Reg']
+    try:
+        target_list_index = all_reg_numbers_in_sheet.index(scraped_reg)
+        target_row_num = target_list_index + 2
+        existing_row_data = all_sheet_values[target_list_index + 1]
+    except ValueError:
+        print(f"Could not find registration '{scraped_reg}' in the sheet. Skipping.")
+        return
 
-            # Prepare data for batch update, writing only to empty cells.
-            if not existing_row_data[gpa_col_index] and parsed_data.get('GPA'):
-                update_requests.append({'range': f'E{target_row_num}', 'values': [[parsed_data.get('GPA')]]})
-            if not existing_row_data[cgpa_col_index] and parsed_data.get('CGPA'):
-                update_requests.append({'range': f'F{target_row_num}', 'values': [[parsed_data.get('CGPA')]]})
-            scraped_fail_subs = parsed_data.get('Fail Subs')
-            if scraped_fail_subs and not existing_row_data[retake_col_index]:
-                retake_col_letter = gspread.utils.rowcol_to_a1(1, retake_col_index + 1).rstrip('1')
-                update_requests.append({'range': f'{retake_col_letter}{target_row_num}', 'values': [[scraped_fail_subs]]})
-            for course in parsed_data.get('courses', []):
-                sanitized_name = sanitize_text(course['name'])
-                if sanitized_name in course_name_map:
-                    col_index = course_name_map[sanitized_name]
-                    if not existing_row_data[col_index]:
-                        col_letter = gspread.utils.rowcol_to_a1(1, col_index + 1).rstrip('1')
-                        update_requests.append({'range': f'{col_letter}{target_row_num}', 'values': [[course['grade']]]})
+    print(f"Found on row {target_row_num}. Checking for empty cells...")
+    update_requests = []
 
-            if update_requests:
-                worksheet.batch_update(update_requests)
-                print(f"✅ Successfully wrote {len(update_requests)} new value(s) to the Google Sheet.")
-            else:
-                print("No empty cells to update. Data is already present.")
+    student_name = parsed_data.get('Name', '').title()
+    student_roll = format_roll_number(parsed_data.get('Roll', ''))
 
-        except TimeoutException:
-            print(f"No result found for {current_reg} (timeout).")
-        except Exception as e:
-            print(f"An unexpected error occurred for {current_reg}: {e}")
+    if not existing_row_data[header_indices['name']] and student_name:
+        update_requests.append({'range': f'B{target_row_num}', 'values': [[student_name]]})
+    if not existing_row_data[header_indices['roll']] and student_roll:
+        update_requests.append({'range': f'C{target_row_num}', 'values': [[student_roll]]})
+    if not existing_row_data[header_indices['gpa']] and parsed_data.get('GPA'):
+        update_requests.append({'range': f'E{target_row_num}', 'values': [[parsed_data.get('GPA')]]})
+    if not existing_row_data[header_indices['cgpa']] and parsed_data.get('CGPA'):
+        update_requests.append({'range': f'F{target_row_num}', 'values': [[parsed_data.get('CGPA')]]})
+    
+    scraped_fail_subs = parsed_data.get('Fail Subs')
+    if scraped_fail_subs and not existing_row_data[header_indices['retake']]:
+        retake_col_letter = gspread.utils.rowcol_to_a1(1, header_indices['retake'] + 1).rstrip('1')
+        update_requests.append({'range': f'{retake_col_letter}{target_row_num}', 'values': [[scraped_fail_subs]]})
 
-    driver.quit()
-    print("\n--- All registration numbers processed. WebDriver closed. ---")
+    for course in parsed_data.get('courses', []):
+        sanitized_name = sanitize_text(course['name'])
+        if sanitized_name in course_name_map:
+            col_index = course_name_map[sanitized_name]
+            if not existing_row_data[col_index]:
+                col_letter = gspread.utils.rowcol_to_a1(1, col_index + 1).rstrip('1')
+                update_requests.append({'range': f'{col_letter}{target_row_num}', 'values': [[course['grade']]]})
 
-    # --- Post-processing: Convert and format GPA/CGPA columns ---
+    if update_requests:
+        worksheet.batch_update(update_requests)
+        print(f"✅ Successfully wrote {len(update_requests)} new value(s) to the Google Sheet.")
+    else:
+        print("No empty cells to update. Data is already present.")
+
+def format_gpa_cgpa_columns(worksheet):
+    """Converts and formats GPA/CGPA columns in the sheet."""
     print("\n--- Converting and formatting GPA/CGPA columns... ---")
     try:
         ranges_to_process = ["E3:E", "F3:F"]
@@ -298,11 +336,9 @@ def main():
             for row in values_list:
                 cell_value = row[0] if row else ''
                 try:
-                    # Attempt to convert the string value from the sheet into a number.
                     numeric_value = float(cell_value)
                     converted_values.append([numeric_value])
                 except (ValueError, TypeError):
-                    # If it's not a number (e.g., empty or text), keep it as is.
                     converted_values.append([cell_value])
 
             update_payload.append({
@@ -311,11 +347,9 @@ def main():
             })
 
         if update_payload:
-            # 'USER_ENTERED' tells Google Sheets to interpret values as if a user typed them.
             worksheet.batch_update(update_payload, value_input_option='USER_ENTERED')
             print("Step 1/2: Successfully converted any existing text values to numbers.")
 
-        # Apply the "0.00" number format for consistent display.
         worksheet.format(ranges_to_process, {
             "numberFormat": {
                 "type": "NUMBER",
@@ -323,9 +357,35 @@ def main():
             }
         })
         print("Step 2/2: ✅ Successfully applied number formatting to GPA and CGPA columns.")
-
     except Exception as e:
         print(f"⚠️ Could not apply formatting. Error: {e}")
+
+
+# ===================================================================
+# Main Execution Logic
+# ===================================================================
+def main():
+    """Main execution function to run the scraper and update the sheet."""
+    worksheet = get_worksheet()
+    if not worksheet:
+        return
+
+    header_indices, all_reg_numbers_in_sheet, course_name_map, all_sheet_values = get_sheet_data(worksheet)
+    if not header_indices:
+        return
+
+    driver = initialize_webdriver()
+
+    try:
+        for regi_num in range(START_REGI, END_REGI + 1):
+            parsed_data = scrape_student_result(driver, str(regi_num))
+            if parsed_data:
+                update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_reg_numbers_in_sheet, course_name_map, all_sheet_values)
+    finally:
+        driver.quit()
+        print("\n--- All registration numbers processed. WebDriver closed. ---")
+
+    format_gpa_cgpa_columns(worksheet)
 
 
 # ===================================================================
