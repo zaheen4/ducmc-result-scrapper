@@ -5,7 +5,6 @@ Requires: Firefox + geckodriver, dependencies from requirements.txt.
 InquirerPy is used for interactive prompts (fuzzy exam selector).
 """
 
-import sys
 import os
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -13,7 +12,7 @@ DATA_DIR = os.path.join(SCRIPT_DIR, "data")
 CREDENTIALS_FILE = os.path.join(SCRIPT_DIR, "credentials.json")
 ENV_FILE = os.path.join(SCRIPT_DIR, ".env")
 
-import scraper_common
+import scraper_common  # noqa: E402
 
 scraper_common.configure(
     data_dir=DATA_DIR,

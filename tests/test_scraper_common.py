@@ -3,7 +3,7 @@
 import json
 import os
 import sys
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,7 +18,7 @@ scraper_common.configure(
     browser="firefox",
 )
 
-from scraper_common import (
+from scraper_common import (  # noqa: E402
     sanitize_text,
     normalize_text,
     format_roll_number,
@@ -368,6 +368,7 @@ class TestProgress:
 class TestGetSheetData:
     def test_returns_correct_indices(self, mock_worksheet):
         header_indices, regs, course_map, values, has_courses, has_retake = get_sheet_data(mock_worksheet)
+        assert header_indices is not None
         assert header_indices['name'] == 1
         assert header_indices['roll'] == 2
         assert header_indices['reg'] == 3
@@ -379,11 +380,13 @@ class TestGetSheetData:
 
     def test_returns_reg_numbers(self, mock_worksheet):
         _, regs, _, _, _, _ = get_sheet_data(mock_worksheet)
+        assert regs is not None
         assert '101' in regs
         assert '123' in regs
 
     def test_course_name_map_matches(self, mock_worksheet):
         _, _, course_map, _, _, _ = get_sheet_data(mock_worksheet)
+        assert course_map is not None
         assert 'computernetworking' in course_map
         assert 'softwareengineering' in course_map
         assert 'microprocessorandmicrocontroller' in course_map
@@ -456,6 +459,7 @@ class TestUpdateSheet:
             ],
         }
         header_indices, regs, course_map, values, _, _ = get_sheet_data(ws)
+        assert header_indices is not None
         update_sheet_with_student_data(
             ws, parsed, header_indices, regs, course_map, values, header_indices['retake']
         )
@@ -480,6 +484,7 @@ class TestUpdateSheet:
             ],
         }
         header_indices, regs, course_map, values, _, _ = get_sheet_data(mock_worksheet)
+        assert header_indices is not None
         update_sheet_with_student_data(
             mock_worksheet, parsed, header_indices, regs, course_map, values, header_indices['retake']
         )
@@ -488,6 +493,7 @@ class TestUpdateSheet:
     def test_reg_not_found_skips(self, mock_worksheet):
         parsed = {'Reg': '999', 'Name': 'Nobody'}
         header_indices, regs, course_map, values, _, _ = get_sheet_data(mock_worksheet)
+        assert header_indices is not None
         update_sheet_with_student_data(
             mock_worksheet, parsed, header_indices, regs, course_map, values, header_indices['retake']
         )
@@ -517,6 +523,7 @@ class TestUpdateSheet:
             'courses': [],
         }
         header_indices, regs, course_map, values, _, _ = get_sheet_data(ws)
+        assert header_indices is not None
         update_sheet_with_student_data(ws, parsed, header_indices, regs, course_map, values, header_indices['retake'])
         ws.batch_update.assert_called_once()
         calls = ws.batch_update.call_args[0][0]
@@ -644,8 +651,10 @@ class TestSelectExam:
         mock_driver = MagicMock()
         mock_wait = MagicMock()
         mock_select = MagicMock()
-        opt1 = MagicMock(); opt1.text = "Exam A 2024"
-        opt2 = MagicMock(); opt2.text = "Exam B 2023"
+        opt1 = MagicMock()
+        opt1.text = "Exam A 2024"
+        opt2 = MagicMock()
+        opt2.text = "Exam B 2023"
         mock_select.options = [opt1, opt2]
         MockSelect.return_value = mock_select
 
@@ -675,7 +684,8 @@ class TestSelectExam:
         mock_driver = MagicMock()
         mock_wait = MagicMock()
         mock_select = MagicMock()
-        opt = MagicMock(); opt.text = "New Exam"
+        opt = MagicMock()
+        opt.text = "New Exam"
         mock_select.options = [opt]
 
         mock_save = MagicMock()

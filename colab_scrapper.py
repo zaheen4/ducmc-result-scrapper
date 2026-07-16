@@ -22,7 +22,7 @@ subprocess.run(
 )
 
 # --- Mount Google Drive ---
-from google.colab import drive  # type: ignore
+from google.colab import drive  # pyright: ignore[reportMissingImports]  # noqa: E402
 
 if not os.path.exists("/content/drive/MyDrive"):
     drive.mount("/content/drive")
@@ -38,7 +38,7 @@ if not os.path.exists(CREDENTIALS_FILE):
     print("Please place it in Google Drive → ResultScraperData/")
     sys.exit(1)
 
-import scraper_common
+import scraper_common  # noqa: E402
 
 scraper_common.configure(
     data_dir=DATA_DIR,
