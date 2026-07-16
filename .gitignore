@@ -4,5 +4,10 @@ tmp/
 tmpUseless/
 Output/
 credentials.json
+data/
 new.py
 result_scrapper[OLD].py
+__pycache__/
+*.pyc
+.pytest_cache/
+*.csv
