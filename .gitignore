@@ -1,14 +1,8 @@
 .venv
-tmp/
-.random.txt
-tmpUseless/
-Output/
 credentials.json
 .env
 data/
-new.py
-result_scrapper[OLD].py
 __pycache__/
 *.pyc
 .pytest_cache/
-*.csv
+.ruff_cache/

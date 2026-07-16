@@ -36,10 +36,10 @@ Run tests: `.venv/bin/python -m pytest tests/ -v`
 Pinned in `requirements.txt` (source of truth):
 
 ```
-selenium==4.33.0 gspread==6.2.1 beautifulsoup4==4.13.4 webdriver-manager==4.0.2
+selenium==4.33.0 gspread==6.2.1 beautifulsoup4==4.13.4 InquirerPy==0.3.4
 ```
 
-Plus `InquirerPy==0.3.4` for local fuzzy prompts, `pytest` for tests.
+Plus `python-dotenv==1.1.1` for `.env` persistence, `pytest` for tests.
 
 (Installed at runtime in Colab; must be pre-installed locally, e.g. in `.venv`.)
 
@@ -72,7 +72,7 @@ Scraped reg numbers saved to `data/progress.json`, scoped by `(sheet_url, worksh
 
 ## Gotchas
 
-- `credentials.json` is in `.gitignore` but currently **is committed** in the repo root. It contains a GCP service account private key. Do not leak or commit fresh copies.
+- `credentials.json` is in `.gitignore` and is **not committed** — it exists only on disk. It contains a GCP service account private key. Do not leak or commit copies.
 - `config.json`, `progress.json`, and `.env` are in `.gitignore` via `data/` — they won't be committed.
 - The Google Sheet only needs these fixed headers in row 1: `Sl.`, `Student's Name`, `Student's ID`, `Reg. No.`, `GPA`, `CGPA`. Course columns and `Retake Courses` are auto-created from the first scraped result.
 - Exam selection uses text normalization (HTML entity decoding, whitespace collapsing) to handle portal encoding quirks.
