@@ -30,7 +30,7 @@ def setup_environment():
         subprocess.run(["apt-get", "update"], check=True)
         subprocess.run(["apt-get", "install", "-y", "chromium-browser"], check=True)
 
-        subprocess.run(["pip", "install", "selenium==4.25.0", "gspread==5.12.4", "beautifulsoup4==4.12.3", "webdriver-manager==4.0.1", "InquirerPy==0.3.4"], check=True)
+        subprocess.run(["pip", "install", "selenium==4.33.0", "gspread==6.2.1", "beautifulsoup4==4.13.4", "webdriver-manager==4.0.2", "InquirerPy==0.3.4"], check=True)
 
         ts("✅ Dependencies installed.")
     else:
