@@ -97,6 +97,30 @@ DEFAULTS = {
     "request_delay": 1
 }
 
+# .env file for persistent secrets/config (not tracked by git)
+if IN_COLAB:
+    ENV_FILE = os.path.join(DATA_DIR, '.env')
+else:
+    ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+
+def load_env():
+    """Parse KEY=value pairs from .env file."""
+    env = {}
+    if os.path.exists(ENV_FILE):
+        with open(ENV_FILE, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, _, value = line.partition('=')
+                    env[key.strip()] = value.strip().strip('"').strip("'")
+    return env
+
+def save_env(env_dict):
+    """Write KEY=value pairs to .env file."""
+    with open(ENV_FILE, 'w') as f:
+        for key, value in env_dict.items():
+            f.write(f'{key}={value}\n')
+
 def save_config(config):
     """Write config dict back to config.json."""
     config_path = os.path.join(DATA_DIR, 'config.json')
@@ -128,32 +152,36 @@ def first_run_setup(config):
         ts("Install it: pip install InquirerPy")
         sys.exit(1)
 
-    ts("\nFirst run detected — let's set up config.json.\n")
+    # Load .env for pre-filling prompts
+    env = load_env()
+    env_hint = " (loaded from .env)" if env else ""
+
+    ts(f"\nFirst run detected — let's set up config.json.{env_hint}\n")
 
     questions = [
         {
             "type": "input",
             "name": "google_sheet_url",
             "message": "Google Sheet URL:",
-            "default": config.get("google_sheet_url", ""),
+            "default": env.get("GOOGLE_SHEET_URL") or config.get("google_sheet_url", ""),
         },
         {
             "type": "input",
             "name": "worksheet_name",
             "message": "Worksheet name:",
-            "default": config.get("worksheet_name", ""),
+            "default": env.get("WORKSHEET_NAME") or config.get("worksheet_name", ""),
         },
         {
             "type": "input",
             "name": "program",
             "message": "Program name:",
-            "default": config.get("program", DEFAULTS["program"]),
+            "default": env.get("PROGRAM") or config.get("program", DEFAULTS["program"]),
         },
         {
             "type": "input",
             "name": "session",
             "message": "Session (e.g. 2021-2022):",
-            "default": config.get("session", DEFAULTS["session"]),
+            "default": env.get("SESSION") or config.get("session", DEFAULTS["session"]),
         },
         {
             "type": "number",
@@ -178,6 +206,14 @@ def first_run_setup(config):
         config["start_regi"] = int(answers.get("start_regi", config["start_regi"]))
         config["end_regi"] = int(answers.get("end_regi", config["end_regi"]))
         save_config(config)
+
+        # Persist key values to .env for next time
+        save_env({
+            "GOOGLE_SHEET_URL": config["google_sheet_url"],
+            "WORKSHEET_NAME": config["worksheet_name"],
+            "PROGRAM": config["program"],
+            "SESSION": config["session"],
+        })
         ts(f"✅ Config saved.\n")
 
 CONFIG = load_config()

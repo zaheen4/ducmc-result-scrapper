@@ -4,6 +4,7 @@ tmp/
 tmpUseless/
 Output/
 credentials.json
+.env
 data/
 new.py
 result_scrapper[OLD].py
