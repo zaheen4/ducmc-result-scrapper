@@ -56,22 +56,16 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
-# Conditionally import the correct WebDriver service for the environment.
-# webdriver-manager is used to handle automatic driver installation.
+# Conditionally import the correct WebDriver options for the environment.
 try:
     if IN_COLAB:
         from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.chrome.service import Service as ChromeService
-        from webdriver_manager.chrome import ChromeDriverManager
     else:
-        # For local execution, the script defaults to Firefox.
         from selenium.webdriver.firefox.options import Options
-        from selenium.webdriver.firefox.service import Service as FirefoxService
-        from webdriver_manager.firefox import GeckoDriverManager
 except ImportError:
     ts("\n--- Missing Dependency ---")
-    ts("This script requires the 'webdriver-manager' library.")
-    ts("Please install it by running: pip install webdriver-manager")
+    ts("This script requires the 'selenium' library.")
+    ts("Please install it by running: pip install selenium")
     sys.exit(1)
 
 
