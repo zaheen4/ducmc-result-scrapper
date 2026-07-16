@@ -75,6 +75,12 @@ except ImportError:
 # Loads settings from config.json. Falls back to hardcoded defaults if missing.
 
 if IN_COLAB:
+    from google.colab import drive # type: ignore
+    if not os.path.exists('/content/drive/MyDrive'):
+        ts("Mounting Google Drive...")
+        drive.mount('/content/drive')
+    else:
+        ts("[INFO] Google Drive already mounted")
     DATA_DIR = '/content/drive/MyDrive/ResultScraperData'
 else:
     DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
@@ -232,10 +238,7 @@ PROGRESS_FILE = os.path.join(DATA_DIR, 'progress.json')
 
 # --- Environment-Specific Settings ---
 if IN_COLAB:
-    from google.colab import drive # type: ignore
-    ts("Mounting Google Drive to access credentials...")
-    drive.mount('/content/drive', force_remount=True)
-    # Defines the path for the credentials file stored in Google Drive.
+    # Credentials live on Drive (already mounted above)
     CREDENTIALS_FILE = os.path.join(DATA_DIR, 'credentials.json')
     if not os.path.exists(CREDENTIALS_FILE):
         ts(f"[ERROR] credentials.json not found at {CREDENTIALS_FILE}")
