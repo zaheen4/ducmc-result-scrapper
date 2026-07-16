@@ -2,13 +2,23 @@
 
 Selenium scraper that pulls student exam results from the DUCMC results portal into a Google Sheet.
 
+## Architecture
+
+Three files, zero duplication:
+
+| File | Role | Environment |
+|------|------|-------------|
+| `scraper_common.py` | All shared logic | — |
+| `result_scrapper.py` | Entry point (Firefox, InquirerPy) | Local |
+| `colab_scrapper.py` | Entry point (Chrome, Drive mount) | Colab |
+
 ## Requirements
 
 - Python 3.11+
 - Firefox + geckodriver (local) or Google Colab (auto-installs Chrome)
 - `credentials.json` — GCP service account key with Sheets API access
 
-## Setup
+## Setup (Local)
 
 1. Create a virtual environment and install dependencies:
 
@@ -25,13 +35,25 @@ Selenium scraper that pulls student exam results from the DUCMC results portal i
    .venv/bin/python result_scrapper.py
    ```
 
+## Setup (Colab)
+
+1. Upload `scraper_common.py` and `colab_scrapper.py` to a Colab notebook.
+
+2. Run:
+
+   ```python
+   %run colab_scrapper.py
+   ```
+
+   Dependencies install automatically. Google Drive mounts for credentials/config storage.
+
 ## Usage
 
 ```bash
 # Basic run (uses config.json settings)
 .venv/bin/python result_scrapper.py
 
-# Interactively select an exam
+# Interactively select an exam (InquirerPy fuzzy search)
 .venv/bin/python result_scrapper.py --list-exams
 
 # Override config via CLI (no need to edit JSON)

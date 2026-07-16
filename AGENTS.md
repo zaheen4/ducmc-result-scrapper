@@ -2,16 +2,22 @@
 
 ## What This Is
 
-Single-file Python scraper (`result_scrapper.py`) that pulls student exam results from a DUCMC university results portal (Selenium + BeautifulSoup) and writes them into a Google Sheet (gspread).
+Three-file Python scraper for DUCMC university exam results:
+- `scraper_common.py` — shared logic (all functions, config, scraping, sheet ops)
+- `result_scrapper.py` — local entry point (Firefox, InquirerPy fuzzy prompts)
+- `colab_scrapper.py` — Colab entry point (Chrome, Drive mount, plain `input()`)
 
-## Dual Environment
+Pulls results from the DUCMC portal (Selenium + BeautifulSoup) and writes them into a Google Sheet (gspread).
 
-The script auto-detects Colab vs local via `google.colab` in `sys.modules`:
+## Architecture
 
-- **Colab**: installs Chromium, uses Chrome WebDriver, mounts Google Drive for credentials at `/content/drive/MyDrive/ResultScraperData/credentials.json`
-- **Local**: expects Firefox + geckodriver, reads `credentials.json` from script directory
+`scraper_common.py` holds all shared logic. Each entry point sets environment-specific constants and calls `scraper_common.configure()` + `scraper_common.run()`. No code duplication.
 
-The `IN_COLAB` flag gates all environment differences.
+```
+result_scrapper.py  ─┐
+                     ├─► scraper_common.py  ──► Google Sheet + DUCMC Portal
+colab_scrapper.py   ─┘
+```
 
 ## Run
 
@@ -19,7 +25,8 @@ The `IN_COLAB` flag gates all environment differences.
 # Local — requires Firefox + geckodriver
 python result_scrapper.py
 
-# Colab — paste into a cell and run; dependencies auto-install
+# Colab — upload both .py files, then:
+# %run colab_scrapper.py
 ```
 
 Run tests: `.venv/bin/python -m pytest tests/ -v`
@@ -32,7 +39,7 @@ Pinned in `requirements.txt` (source of truth):
 selenium==4.33.0 gspread==6.2.1 beautifulsoup4==4.13.4 webdriver-manager==4.0.2
 ```
 
-Plus `pytest` for tests. No InquirerPy — all prompts use plain `input()`.
+Plus `InquirerPy==0.3.4` for local fuzzy prompts, `pytest` for tests.
 
 (Installed at runtime in Colab; must be pre-installed locally, e.g. in `.venv`.)
 
@@ -45,7 +52,7 @@ All runtime data lives in `data/` directory (gitignored). Config is stored in `d
   "google_sheet_url": "https://docs.google.com/spreadsheets/d/.../edit",
   "worksheet_name": "Copy of PerCourse_L3T1",
   "program": "B.Sc. in Computer Science and Engineering",
-  "session": "2020-2021",
+  "session": "2021-2022",
   "exam": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2023 (New Curriculum)",
   "start_regi": 710,
   "end_regi": 813
@@ -53,6 +60,8 @@ All runtime data lives in `data/` directory (gitignored). Config is stored in `d
 ```
 
 - First run triggers interactive setup (Sheet URL, worksheet, program, session, regi range)
+- Local: InquirerPy fuzzy search for exam selector
+- Colab: plain `input()` with numbered list
 - Persistent values also saved to `.env` (gitignored) so they survive config.json deletion
 - CLI flags (`--sheet-url`, `--worksheet`, `--program`, `--session`, `--start-regi`, `--end-regi`) override config
 - `exam` can be empty string to skip exam selection (will fail at runtime)
