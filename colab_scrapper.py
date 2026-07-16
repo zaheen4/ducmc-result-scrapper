@@ -13,7 +13,6 @@ import subprocess
 
 # --- Install dependencies ---
 subprocess.run(["apt-get", "update"], check=True)
-subprocess.run(["apt-get", "install", "-y", "chromium-browser"], check=True)
 subprocess.run(
     ["pip", "install",
      "selenium==4.33.0", "gspread==6.2.1",
