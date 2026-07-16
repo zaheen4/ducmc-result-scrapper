@@ -639,7 +639,6 @@ class TestSelectExam:
         mock_select.options = [opt1, opt2]
         MockSelect.return_value = mock_select
 
-        mock_prompt = MagicMock(return_value={"exam": "Exam A 2024"})
         mock_save = MagicMock()
         mock_load = MagicMock(return_value={"exam": "", "start_regi": 710})
 
@@ -647,7 +646,7 @@ class TestSelectExam:
              patch('result_scrapper.WebDriverWait', return_value=mock_wait), \
              patch('result_scrapper.load_config', mock_load), \
              patch('result_scrapper.save_config', mock_save), \
-             patch.dict('sys.modules', {'InquirerPy': MagicMock(prompt=mock_prompt), 'InquirerPy.separator': MagicMock()}):
+             patch('builtins.input', return_value="1"):
             select_exam(force=True)
 
         mock_save.assert_called_once()
@@ -667,7 +666,6 @@ class TestSelectExam:
         opt = MagicMock(); opt.text = "New Exam"
         mock_select.options = [opt]
 
-        mock_prompt = MagicMock(return_value={"exam": "New Exam"})
         mock_save = MagicMock()
         mock_load = MagicMock(return_value={"exam": "Old Exam"})
 
@@ -677,7 +675,7 @@ class TestSelectExam:
              patch('result_scrapper.time.sleep'), \
              patch('result_scrapper.load_config', mock_load), \
              patch('result_scrapper.save_config', mock_save), \
-             patch.dict('sys.modules', {'InquirerPy': MagicMock(prompt=mock_prompt), 'InquirerPy.separator': MagicMock()}):
+             patch('builtins.input', return_value="1"):
             select_exam(force=True)
 
         mock_save.assert_called_once()

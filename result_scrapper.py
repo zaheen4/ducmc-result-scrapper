@@ -30,7 +30,7 @@ def setup_environment():
         subprocess.run(["apt-get", "update"], check=True)
         subprocess.run(["apt-get", "install", "-y", "chromium-browser"], check=True)
 
-        subprocess.run(["pip", "install", "selenium==4.33.0", "gspread==6.2.1", "beautifulsoup4==4.13.4", "webdriver-manager==4.0.2", "InquirerPy==0.3.4"], check=True)
+        subprocess.run(["pip", "install", "selenium==4.33.0", "gspread==6.2.1", "beautifulsoup4==4.13.4", "webdriver-manager==4.0.2"], check=True)
 
         ts("✅ Dependencies installed.")
     else:
@@ -144,13 +144,6 @@ def load_config():
 
 def first_run_setup(config):
     """Prompt user for critical config values on first run."""
-    try:
-        from InquirerPy import prompt
-    except ImportError:
-        ts("\n--- Missing Dependency ---")
-        ts("InquirerPy is required for interactive setup.")
-        ts("Install it: pip install InquirerPy")
-        sys.exit(1)
 
     # Load .env for pre-filling prompts
     env = load_env()
@@ -158,63 +151,29 @@ def first_run_setup(config):
 
     ts(f"\nFirst run detected — let's set up config.json.{env_hint}\n")
 
-    questions = [
-        {
-            "type": "input",
-            "name": "google_sheet_url",
-            "message": "Google Sheet URL:",
-            "default": env.get("GOOGLE_SHEET_URL") or config.get("google_sheet_url", ""),
-        },
-        {
-            "type": "input",
-            "name": "worksheet_name",
-            "message": "Worksheet name:",
-            "default": env.get("WORKSHEET_NAME") or config.get("worksheet_name", ""),
-        },
-        {
-            "type": "input",
-            "name": "program",
-            "message": "Program name:",
-            "default": env.get("PROGRAM") or config.get("program", DEFAULTS["program"]),
-        },
-        {
-            "type": "input",
-            "name": "session",
-            "message": "Session (e.g. 2021-2022):",
-            "default": env.get("SESSION") or config.get("session", DEFAULTS["session"]),
-        },
-        {
-            "type": "number",
-            "name": "start_regi",
-            "message": "Start regi number:",
-            "default": config.get("start_regi", 710),
-        },
-        {
-            "type": "number",
-            "name": "end_regi",
-            "message": "End regi number:",
-            "default": config.get("end_regi", 813),
-        },
-    ]
+    def _input(prompt_text, default):
+        """Show prompt with default, return user input or default."""
+        hint = f" [{default}]" if default else ""
+        val = input(f"{prompt_text}{hint}: ").strip()
+        return val if val else str(default)
 
-    answers = prompt(questions)
-    if answers:
-        config["google_sheet_url"] = answers.get("google_sheet_url", config["google_sheet_url"])
-        config["worksheet_name"] = answers.get("worksheet_name", config["worksheet_name"])
-        config["program"] = answers.get("program", config["program"])
-        config["session"] = answers.get("session", config["session"])
-        config["start_regi"] = int(answers.get("start_regi", config["start_regi"]))
-        config["end_regi"] = int(answers.get("end_regi", config["end_regi"]))
-        save_config(config)
+    config["google_sheet_url"] = _input("Google Sheet URL", env.get("GOOGLE_SHEET_URL") or config.get("google_sheet_url", ""))
+    config["worksheet_name"] = _input("Worksheet name", env.get("WORKSHEET_NAME") or config.get("worksheet_name", ""))
+    config["program"] = _input("Program name", env.get("PROGRAM") or config.get("program", DEFAULTS["program"]))
+    config["session"] = _input("Session (e.g. 2021-2022)", env.get("SESSION") or config.get("session", DEFAULTS["session"]))
+    config["start_regi"] = int(_input("Start regi number", config.get("start_regi", 710)))
+    config["end_regi"] = int(_input("End regi number", config.get("end_regi", 813)))
 
-        # Persist key values to .env for next time
-        save_env({
-            "GOOGLE_SHEET_URL": config["google_sheet_url"],
-            "WORKSHEET_NAME": config["worksheet_name"],
-            "PROGRAM": config["program"],
-            "SESSION": config["session"],
-        })
-        ts(f"✅ Config saved.\n")
+    save_config(config)
+
+    # Persist key values to .env for next time
+    save_env({
+        "GOOGLE_SHEET_URL": config["google_sheet_url"],
+        "WORKSHEET_NAME": config["worksheet_name"],
+        "PROGRAM": config["program"],
+        "SESSION": config["session"],
+    })
+    ts(f"✅ Config saved.\n")
 
 CONFIG = load_config()
 GOOGLE_SHEET_URL = CONFIG["google_sheet_url"]
@@ -736,15 +695,7 @@ def main(dry_run=False, reg_num=None):
 # Exam Selector (--list-exams)
 # ===================================================================
 def select_exam(force=False):
-    """Interactive exam selector using InquirerPy fuzzy search."""
-    try:
-        from InquirerPy import prompt
-    except ImportError:
-        ts("\n--- Missing Dependency ---")
-        ts("InquirerPy is required for the exam selector.")
-        ts("Install it: pip install InquirerPy")
-        sys.exit(1)
-
+    """Interactive exam selector."""
     current_config = load_config()
     if current_config.get("exam") and not force:
         ts(f"Current exam: \"{current_config['exam']}\"")
@@ -772,19 +723,26 @@ def select_exam(force=False):
 
         ts(f"Found {len(exam_options)} exam(s) for \"{FORM_DATA['program']}\"")
 
-        questions = [{
-            "type": "fuzzy",
-            "name": "exam",
-            "message": "Select exam:",
-            "choices": exam_options,
-        }]
-        result = prompt(questions)
+        # Numbered list with input() — works in both Colab and local
+        ts("")
+        for i, opt in enumerate(exam_options, 1):
+            ts(f"  {i}. {opt}")
+        ts("")
 
-        if result and result.get("exam"):
-            selected = result["exam"]
-            current_config["exam"] = selected
-            save_config(current_config)
-            ts(f"✅ Updated config.json with exam: \"{selected}\"")
+        while True:
+            try:
+                choice = input(f"Select exam (1-{len(exam_options)}): ").strip()
+                idx = int(choice) - 1
+                if 0 <= idx < len(exam_options):
+                    selected = exam_options[idx]
+                    break
+                ts(f"Invalid choice. Enter a number between 1 and {len(exam_options)}.")
+            except (ValueError, EOFError):
+                ts("Invalid input. Enter a number.")
+
+        current_config["exam"] = selected
+        save_config(current_config)
+        ts(f"✅ Updated config.json with exam: \"{selected}\"")
     finally:
         driver.quit()
 
