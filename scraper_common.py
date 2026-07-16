@@ -13,6 +13,7 @@ import html as html_module
 import re
 import hashlib
 from datetime import datetime
+from typing import Any, TextIO
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -30,23 +31,23 @@ from selenium.webdriver.firefox.options import Options as FirefoxOptions
 # ===================================================================
 # Module-Level State
 # ===================================================================
-DATA_DIR = None
-CREDENTIALS_FILE = None
-ENV_FILE = None
-BROWSER = "firefox"
-USE_INQUIRERPY = True
-CONFIG = {}
-GOOGLE_SHEET_URL = ""
-WORKSHEET_NAME = ""
-FORM_DATA = {"program": "", "session": "", "exam": ""}
+DATA_DIR: str | None = None
+CREDENTIALS_FILE: str | None = None
+ENV_FILE: str | None = None
+BROWSER: str = "firefox"
+USE_INQUIRERPY: bool = True
+CONFIG: dict[str, Any] = {}
+GOOGLE_SHEET_URL: str = ""
+WORKSHEET_NAME: str = ""
+FORM_DATA: dict[str, str] = {"program": "", "session": "", "exam": ""}
 URL = "https://ducmc.du.ac.bd/result.php"
-START_REGI = 710
-END_REGI = 813
-REQUEST_DELAY = 1
+START_REGI: int = 710
+END_REGI: int = 813
+REQUEST_DELAY: int = 1
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF = 2
-PROGRESS_FILE = None
-LOG_FILE = None
+PROGRESS_FILE: str | None = None
+LOG_FILE: TextIO | None = None
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
@@ -74,15 +75,16 @@ def configure(data_dir, credentials_file, env_file, browser="firefox", use_inqui
     global DATA_DIR, CREDENTIALS_FILE, ENV_FILE, BROWSER, USE_INQUIRERPY
     global PROGRESS_FILE, CONFIG
 
-    DATA_DIR = data_dir
-    CREDENTIALS_FILE = credentials_file
-    ENV_FILE = env_file
-    BROWSER = browser
-    USE_INQUIRERPY = use_inquirerpy
+    DATA_DIR = data_dir  # pyright: ignore[reportConstantRedefinition]
+    CREDENTIALS_FILE = credentials_file  # pyright: ignore[reportConstantRedefinition]
+    ENV_FILE = env_file  # pyright: ignore[reportConstantRedefinition]
+    BROWSER = browser  # pyright: ignore[reportConstantRedefinition]
+    USE_INQUIRERPY = use_inquirerpy  # pyright: ignore[reportConstantRedefinition]
 
+    assert DATA_DIR is not None
     os.makedirs(DATA_DIR, exist_ok=True)
-    PROGRESS_FILE = os.path.join(DATA_DIR, 'progress.json')
-    CONFIG = load_config()
+    PROGRESS_FILE = os.path.join(DATA_DIR, 'progress.json')  # pyright: ignore[reportConstantRedefinition]
+    CONFIG = load_config()  # pyright: ignore[reportConstantRedefinition]
 
 
 # ===================================================================
@@ -147,9 +149,11 @@ def parse_result_html(html_content):
     if result_div:
         result_text = result_div.get_text(separator=' ', strip=True)
         gpa_match = re.search(r"GPA:\s*([\d.]+)", result_text)
-        if gpa_match: student_data['GPA'] = gpa_match.group(1)
+        if gpa_match:
+            student_data['GPA'] = gpa_match.group(1)
         cgpa_match = re.search(r"CGPA:\s*([\d.]+)", result_text)
-        if cgpa_match: student_data['CGPA'] = cgpa_match.group(1)
+        if cgpa_match:
+            student_data['CGPA'] = cgpa_match.group(1)
         all_codes = re.findall(r'[A-Z]{2,}-\d{4}', result_div.get_text(separator=','))
         student_data['Fail Subs'] = ', '.join(all_codes) if all_codes else ''
     student_data['courses'] = []
@@ -172,6 +176,7 @@ def parse_result_html(html_content):
 def load_env():
     """Parse KEY=value pairs from .env file."""
     env = {}
+    assert ENV_FILE is not None
     if os.path.exists(ENV_FILE):
         with open(ENV_FILE, 'r') as f:
             for line in f:
@@ -184,6 +189,7 @@ def load_env():
 
 def save_env(env_dict):
     """Write KEY=value pairs to .env file."""
+    assert ENV_FILE is not None
     with open(ENV_FILE, 'w') as f:
         for key, value in env_dict.items():
             f.write(f'{key}={value}\n')
@@ -191,6 +197,7 @@ def save_env(env_dict):
 
 def save_config(config):
     """Write config dict back to config.json."""
+    assert DATA_DIR is not None
     config_path = os.path.join(DATA_DIR, 'config.json')
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
@@ -240,6 +247,7 @@ def load_progress():
 
 def save_progress(scraped_list):
     """Save progress list to disk with config key for scoping."""
+    assert PROGRESS_FILE is not None
     data = {
         "config_key": _make_progress_key(),
         "scraped": scraped_list
@@ -259,14 +267,16 @@ def first_run_setup(config):
     ts(f"\nFirst run detected — let's set up config.json.{env_hint}\n")
 
     inquirerpy_available = False
+    inq_prompt = None
     if USE_INQUIRERPY:
         try:
-            from InquirerPy import prompt as inq_prompt
+            from InquirerPy import prompt as _inq_prompt
+            inq_prompt = _inq_prompt
             inquirerpy_available = True
         except ImportError:
             pass
 
-    if inquirerpy_available:
+    if inquirerpy_available and inq_prompt is not None:
         questions = [
             {
                 "type": "input",
@@ -312,8 +322,8 @@ def first_run_setup(config):
         config["worksheet_name"] = str(answers["worksheet_name"])
         config["program"] = str(answers["program"])
         config["session"] = str(answers["session"])
-        config["start_regi"] = int(answers["start_regi"])
-        config["end_regi"] = int(answers["end_regi"])
+        config["start_regi"] = int(str(answers["start_regi"]))
+        config["end_regi"] = int(str(answers["end_regi"]))
     else:
         def _input(prompt_text, default):
             hint = f" [{default}]" if default else ""
@@ -335,7 +345,7 @@ def first_run_setup(config):
         "PROGRAM": config["program"],
         "SESSION": config["session"],
     })
-    ts(f"✅ Config saved.\n")
+    ts("✅ Config saved.\n")
 
 
 def select_exam(force=False):
@@ -368,14 +378,16 @@ def select_exam(force=False):
         ts(f"Found {len(exam_options)} exam(s) for \"{FORM_DATA['program']}\"")
 
         inquirerpy_available = False
+        inq_prompt = None
         if USE_INQUIRERPY:
             try:
-                from InquirerPy import prompt as inq_prompt
+                from InquirerPy import prompt as _inq_prompt
+                inq_prompt = _inq_prompt
                 inquirerpy_available = True
             except ImportError:
                 pass
 
-        if inquirerpy_available:
+        if inquirerpy_available and inq_prompt is not None:
             questions = [
                 {
                     "type": "fuzzy",
@@ -403,7 +415,7 @@ def select_exam(force=False):
                 except (ValueError, EOFError):
                     ts("Invalid input. Enter a number.")
 
-        current_config["exam"] = selected
+        current_config["exam"] = str(selected)
         save_config(current_config)
         ts(f"✅ Updated config.json with exam: \"{selected}\"")
     finally:
@@ -416,6 +428,7 @@ def select_exam(force=False):
 def get_worksheet():
     """Authenticates with Google Sheets and returns the worksheet object."""
     ts("Authenticating with Google Sheets...")
+    assert CREDENTIALS_FILE is not None
     if not os.path.exists(CREDENTIALS_FILE):
         ts(f"FATAL ERROR: credentials.json not found at: {CREDENTIALS_FILE}")
         return None
@@ -474,13 +487,13 @@ def setup_course_columns(worksheet, courses, next_col_index, has_retake_column):
     course_code_cells = []
     for i, course in enumerate(courses):
         col_num = next_col_index + i + 1
-        col_letter = gspread.utils.rowcol_to_a1(1, col_num).rstrip('1')
+        col_letter = gspread.utils.rowcol_to_a1(1, col_num).rstrip('1')  # pyright: ignore[reportAttributeAccessIssue]
         course_name_cells.append({'range': f'{col_letter}1', 'values': [[course['name']]]})
         course_code_cells.append({'range': f'{col_letter}2', 'values': [[course['code']]]})
 
     if not has_retake_column:
         retake_col_num = next_col_index + len(courses) + 1
-        retake_col_letter = gspread.utils.rowcol_to_a1(1, retake_col_num).rstrip('1')
+        retake_col_letter = gspread.utils.rowcol_to_a1(1, retake_col_num).rstrip('1')  # pyright: ignore[reportAttributeAccessIssue]
         course_name_cells.append({'range': f'{retake_col_letter}1', 'values': [['Retake Courses']]})
         course_code_cells.append({'range': f'{retake_col_letter}2', 'values': [['']]})
 
@@ -550,7 +563,7 @@ def update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_r
 
     scraped_fail_subs = parsed_data.get('Fail Subs')
     if scraped_fail_subs and not existing_row_data[retake_col_index]:
-        retake_col_letter = gspread.utils.rowcol_to_a1(1, retake_col_index + 1).rstrip('1')
+        retake_col_letter = gspread.utils.rowcol_to_a1(1, retake_col_index + 1).rstrip('1')  # pyright: ignore[reportAttributeAccessIssue]
         update_requests.append({'range': f'{retake_col_letter}{target_row_num}', 'values': [[scraped_fail_subs]]})
 
     for course in parsed_data.get('courses', []):
@@ -558,7 +571,7 @@ def update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_r
         if sanitized_name in course_name_map:
             col_index = course_name_map[sanitized_name]
             if not existing_row_data[col_index]:
-                col_letter = gspread.utils.rowcol_to_a1(1, col_index + 1).rstrip('1')
+                col_letter = gspread.utils.rowcol_to_a1(1, col_index + 1).rstrip('1')  # pyright: ignore[reportAttributeAccessIssue]
                 update_requests.append({'range': f'{col_letter}{target_row_num}', 'values': [[course['grade']]]})
 
     if update_requests:
@@ -740,6 +753,7 @@ def main(dry_run=False, reg_num=None):
                         setup_course_columns(worksheet, parsed_data['courses'], next_col_index, has_retake_column)
                         set_column_widths(worksheet, len(parsed_data['courses']), next_col_index)
                         header_indices, all_reg_numbers_in_sheet, course_name_map, all_sheet_values, _, _ = get_sheet_data(worksheet)
+                        assert header_indices is not None
                         course_setup_done = True
 
                     update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_reg_numbers_in_sheet, course_name_map, all_sheet_values, header_indices['retake'])
@@ -936,13 +950,13 @@ def run():
     if args.end_regi is not None:
         CONFIG["end_regi"] = args.end_regi
 
-    GOOGLE_SHEET_URL = CONFIG["google_sheet_url"]
-    WORKSHEET_NAME = CONFIG["worksheet_name"]
-    FORM_DATA["program"] = CONFIG["program"]
-    FORM_DATA["session"] = CONFIG["session"]
-    FORM_DATA["exam"] = CONFIG["exam"]
-    START_REGI = CONFIG["start_regi"]
-    END_REGI = CONFIG["end_regi"]
+    GOOGLE_SHEET_URL = CONFIG["google_sheet_url"]  # pyright: ignore[reportConstantRedefinition]
+    WORKSHEET_NAME = CONFIG["worksheet_name"]  # pyright: ignore[reportConstantRedefinition]
+    FORM_DATA["program"] = str(CONFIG["program"])
+    FORM_DATA["session"] = str(CONFIG["session"])
+    FORM_DATA["exam"] = str(CONFIG["exam"])
+    START_REGI = CONFIG["start_regi"]  # pyright: ignore[reportConstantRedefinition]
+    END_REGI = CONFIG["end_regi"]  # pyright: ignore[reportConstantRedefinition]
 
     if args.list_exams:
         select_exam(force=args.force)
@@ -962,13 +976,14 @@ def run():
 
         if not CONFIG.get("exam"):
             select_exam(force=False)
-            CONFIG = load_config()
+            CONFIG = load_config()  # pyright: ignore[reportConstantRedefinition]
 
         if args.log:
+            assert DATA_DIR is not None
             log_dir = os.path.join(DATA_DIR, 'logs')
             os.makedirs(log_dir, exist_ok=True)
             log_filename = os.path.join(log_dir, f"scraper_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log")
-            LOG_FILE = open(log_filename, 'w')
+            LOG_FILE = open(log_filename, 'w')  # pyright: ignore[reportConstantRedefinition]
             ts(f"Logging to {log_filename}")
 
         if args.fresh:
