@@ -20,6 +20,7 @@ subprocess.run(
      "beautifulsoup4==4.13.4", "webdriver-manager==4.0.2"],
     check=True,
 )
+subprocess.run(["pip", "install", "--upgrade", "typing-extensions"], check=True)
 
 # --- Mount Google Drive ---
 from google.colab import drive  # pyright: ignore[reportMissingImports]  # noqa: E402
