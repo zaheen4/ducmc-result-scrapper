@@ -20,6 +20,31 @@ subprocess.run(
     check=True,
 )
 
+# --- Install Google Chrome + matching ChromeDriver ---
+_CHROME_DEB = "/tmp/chrome-stable.deb"
+subprocess.run(
+    ["wget", "-q", "-O", _CHROME_DEB,
+     "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"],
+    check=True,
+)
+subprocess.run(["apt-get", "install", "-y", "-qq", _CHROME_DEB], check=True)
+_CHROME_VER = subprocess.check_output(
+    ["google-chrome", "--version"], text=True
+).strip().split()[-1]
+subprocess.run(
+    ["wget", "-q", "-O", "/tmp/chromedriver.zip",
+     f"https://storage.googleapis.com/chrome-for-testing-public/{_CHROME_VER}/linux64/chromedriver-linux64.zip"],
+    check=True,
+)
+subprocess.run(
+    ["unzip", "-q", "-o", "/tmp/chromedriver.zip", "-d", "/tmp/chromedriver"],
+    check=True,
+)
+subprocess.run(
+    ["cp", "/tmp/chromedriver/chromedriver-linux64/chromedriver", "/usr/local/bin/chromedriver"],
+    check=True,
+)
+
 # --- Mount Google Drive ---
 from google.colab import drive  # pyright: ignore[reportMissingImports]  # noqa: E402
 
