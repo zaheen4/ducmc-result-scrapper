@@ -49,7 +49,6 @@ RETRY_BACKOFF = 2
 PROGRESS_FILE: str | None = None
 LOG_FILE: TextIO | None = None
 RETAKE_MODE: bool = False
-RETAKE_PROGRESS_FILE: str | None = None
 
 GRADE_POINTS: dict[str, float] = {
     "A+": 4.00, "A": 3.75, "A-": 3.50,
@@ -83,7 +82,7 @@ def configure(data_dir, credentials_file, env_file, browser="firefox", use_inqui
     Call this once at startup before any other functions.
     """
     global DATA_DIR, CREDENTIALS_FILE, ENV_FILE, BROWSER, USE_INQUIRERPY
-    global PROGRESS_FILE, RETAKE_PROGRESS_FILE, CONFIG
+    global PROGRESS_FILE, CONFIG
 
     DATA_DIR = data_dir  # pyright: ignore[reportConstantRedefinition]
     CREDENTIALS_FILE = credentials_file  # pyright: ignore[reportConstantRedefinition]
@@ -94,7 +93,6 @@ def configure(data_dir, credentials_file, env_file, browser="firefox", use_inqui
     assert DATA_DIR is not None
     os.makedirs(DATA_DIR, exist_ok=True)
     PROGRESS_FILE = os.path.join(DATA_DIR, 'progress.json')  # pyright: ignore[reportConstantRedefinition]
-    RETAKE_PROGRESS_FILE = os.path.join(DATA_DIR, 'progress_retake.json')  # pyright: ignore[reportConstantRedefinition]
     CONFIG = load_config()  # pyright: ignore[reportConstantRedefinition]
 
 
@@ -1039,8 +1037,9 @@ def scrape_student_result(driver, reg_num):
 
 def _load_retake_progress():
     """Load list of already-scraped reg numbers from retake progress file."""
-    if RETAKE_PROGRESS_FILE and os.path.exists(RETAKE_PROGRESS_FILE):
-        with open(RETAKE_PROGRESS_FILE, 'r') as f:
+    progress_file = _get_retake_progress_file()
+    if os.path.exists(progress_file):
+        with open(progress_file, 'r') as f:
             data = json.load(f)
         if isinstance(data, dict):
             current_key = _make_retake_progress_key()
@@ -1057,12 +1056,12 @@ def _load_retake_progress():
 
 def _save_retake_progress(scraped_list):
     """Save retake progress list to disk with config key for scoping."""
-    assert RETAKE_PROGRESS_FILE is not None
+    progress_file = _get_retake_progress_file()
     data = {
         "config_key": _make_retake_progress_key(),
         "scraped": scraped_list
     }
-    with open(RETAKE_PROGRESS_FILE, 'w') as f:
+    with open(progress_file, 'w') as f:
         json.dump(data, f)
 
 
@@ -1070,6 +1069,16 @@ def _make_retake_progress_key():
     """Create a deterministic key from the current config to scope retake progress."""
     key_parts = f"{GOOGLE_SHEET_URL}|{WORKSHEET_NAME}|{FORM_DATA.get('retake_exam', '')}"
     return hashlib.md5(key_parts.encode()).hexdigest()[:12]
+
+
+def _get_retake_progress_file():
+    """Get the progress file path for the current retake exam."""
+    assert DATA_DIR is not None
+    exam = FORM_DATA.get('retake_exam', '')
+    if exam:
+        exam_hash = hashlib.md5(exam.encode()).hexdigest()[:8]
+        return os.path.join(DATA_DIR, f'progress_retake_{exam_hash}.json')
+    return os.path.join(DATA_DIR, 'progress_retake.json')
 
 
 def scrape_retake_results(dry_run=False, reg_num=None):
@@ -1490,6 +1499,7 @@ def run():
     parser.add_argument("--log", action="store_true", help="Save output to a log file")
     parser.add_argument("--reg", type=int, help="Scrape a single reg number")
     parser.add_argument("--retake", action="store_true", help="Retake/improvement mode — update PerCourse sheets with improved grades")
+    parser.add_argument("--retake-exam", type=str, help="Retake exam name (overrides config, skips interactive selection)")
     parser.add_argument("--sheet-url", type=str, help="Google Sheet URL (overrides config)")
     parser.add_argument("--worksheet", type=str, help="Worksheet name (overrides config)")
     parser.add_argument("--program", type=str, help="Program name (overrides config)")
@@ -1515,6 +1525,8 @@ def run():
         CONFIG["start_regi"] = args.start_regi
     if args.end_regi is not None:
         CONFIG["end_regi"] = args.end_regi
+    if args.retake_exam:
+        CONFIG["retake_exam"] = args.retake_exam
 
     GOOGLE_SHEET_URL = CONFIG["google_sheet_url"]  # pyright: ignore[reportConstantRedefinition]
     WORKSHEET_NAME = CONFIG["worksheet_name"]  # pyright: ignore[reportConstantRedefinition]
