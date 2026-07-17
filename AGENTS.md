@@ -70,6 +70,31 @@ All runtime data lives in `data/` directory (gitignored). Config is stored in `d
 
 Scraped reg numbers saved to `data/progress.json`, scoped by `(sheet_url, worksheet, exam)` hash. On restart, those students are skipped. Delete `data/progress.json` to re-scrape from scratch.
 
+## Retake/Improvement Mode
+
+Use `--retake` flag to scrape retake/improvement exam results. These publish separately on the portal with only course grades (no GPA/CGPA).
+
+```bash
+# Select a retake exam
+python result_scrapper.py --retake --list-exams --force
+
+# Run retake scraping
+python result_scrapper.py --retake
+
+# Single student retake
+python result_scrapper.py --retake --reg 710
+
+# Dry run
+python result_scrapper.py --retake --dry-run
+```
+
+- Retake exams are filtered by "Improvement"/"Retake" keywords in exam name
+- The exam title is parsed to determine which PerCourse sheet to update (e.g., "1st year 2nd Semester" → `PerCourse_L1T2`)
+- Only updates cells where the new grade is **better** than the existing grade, or the cell is empty
+- Does NOT touch GPA/CGPA columns (they're formulas from Overview sheet)
+- Uses separate progress file `data/progress_retake.json` — independent of normal scraping progress
+- Course codes with spaces (e.g., "MATH 1204") are normalized to hyphens ("MATH-1204") for matching
+
 ## Gotchas
 
 - `credentials.json` is in `.gitignore` and is **not committed** — it exists only on disk. It contains a GCP service account private key. Do not leak or commit copies.

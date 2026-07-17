@@ -23,6 +23,10 @@ from scraper_common import (  # noqa: E402
     normalize_text,
     format_roll_number,
     parse_result_html,
+    parse_retake_result_html,
+    grade_to_point,
+    map_exam_to_sheet,
+    find_course_column,
     load_config,
     save_config,
     load_progress,
@@ -31,6 +35,7 @@ from scraper_common import (  # noqa: E402
     setup_course_columns,
     set_column_widths,
     update_sheet_with_student_data,
+    update_sheet_with_retake_data,
     format_gpa_cgpa_columns,
     scrape_student_result,
     select_exam,
@@ -725,3 +730,245 @@ class TestRequestDelay:
              patch('scraper_common.DATA_DIR', '/tmp'):
             config = load_config()
         assert config['request_delay'] == 1
+
+
+# ===================================================================
+# 5. Retake/Improvement Functions
+# ===================================================================
+
+@pytest.fixture
+def sample_retake_result_html():
+    """Synthetic retake result HTML matching parse_retake_result_html's expected structure."""
+    return """
+    <div id="exam_result">
+      <div class="row justify-content-center">
+        <div class="col-12">
+          <center>
+            <h2 style="border-bottom: 2px solid saddlebrown; padding-bottom: 7px;">
+              <b>B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2023. (Retake/Improvement)</b>
+            </h2>
+          </center>
+          <hr />
+        </div>
+        <div class="col-12">
+          <table class="table table-bordered">
+            <tbody>
+              <tr><th>College Name</th><td>Test University</td></tr>
+              <tr><th>Student's Name</th><td>Mir Zaheen Waseet</td></tr>
+              <tr><th>Registration</th><td>810</td></tr>
+              <tr><th>Session</th><td>2021-2022</td></tr>
+              <tr><th>Program</th><td>B.Sc. in Computer Science and Engineering</td></tr>
+              <tr><th>Exam Roll</th><td>1389</td></tr>
+              <tr><th>Class Roll</th><td>CS 2203104</td></tr>
+              <tr><th>Exam Year</th><td>2023</td></tr>
+              <tr>
+                <th>
+                  <table width="100%" border="1">
+                    <tbody>
+                      <tr><td colspan="5" style="vertical-align: middle;">Name of the Subject/Subjects appearing at:</td></tr>
+                      <tr>
+                        <td>1</td>
+                        <td>MATH 1204</td>
+                        <td style="padding: 3px; vertical-align: middle;">Methods of Integration, Differential Equations and Series</td>
+                        <td>D</td>
+                        <td>2.00</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </th>
+                <td>
+                  <div style="text-align: center; font-weight: bold; font-size: 25px;">
+                    Improvement
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+
+
+@pytest.fixture
+def sample_retake_sheet_values():
+    """Synthetic PerCourse sheet data with existing grades for retake testing."""
+    return [
+        [
+            "Sl.", "Student's Name", "Student's ID", "Reg. No.", "GPA", "CGPA",
+            "MATH-1204", "CSE-1101", "Retake Courses",
+        ],
+        [""] * 9,
+        [
+            "1", "Test Student", "CS 001", "810", "2.50", "2.50",
+            "C", "", "",
+        ],
+    ]
+
+
+class TestGradeToPoint:
+    def test_letter_grades(self):
+        assert grade_to_point("A+") == 4.00
+        assert grade_to_point("A") == 3.75
+        assert grade_to_point("A-") == 3.50
+        assert grade_to_point("B+") == 3.25
+        assert grade_to_point("B") == 3.00
+        assert grade_to_point("B-") == 2.75
+        assert grade_to_point("C+") == 2.50
+        assert grade_to_point("C") == 2.25
+        assert grade_to_point("D") == 2.00
+        assert grade_to_point("F") == 0.00
+
+    def test_numeric_string(self):
+        assert grade_to_point("3.75") == 3.75
+        assert grade_to_point("0.00") == 0.00
+
+    def test_empty_string(self):
+        assert grade_to_point("") == 0.00
+
+    def test_none(self):
+        assert grade_to_point(None) == 0.00
+
+    def test_unknown_grade(self):
+        assert grade_to_point("X") == 0.00
+
+
+class TestParseRetakeResultHtml:
+    def test_extracts_student_info(self, sample_retake_result_html):
+        result = parse_retake_result_html(sample_retake_result_html)
+        assert result['Name'] == 'Mir Zaheen Waseet'
+        assert result['Roll'] == 'CS 2203104'
+        assert result['Reg'] == '810'
+
+    def test_extracts_exam_title(self, sample_retake_result_html):
+        result = parse_retake_result_html(sample_retake_result_html)
+        assert 'exam_title' in result
+        assert '1st year 2nd semester' in result['exam_title'].lower()
+
+    def test_extracts_courses(self, sample_retake_result_html):
+        result = parse_retake_result_html(sample_retake_result_html)
+        assert len(result['courses']) == 1
+        assert result['courses'][0]['code'] == 'MATH-1204'
+        assert result['courses'][0]['grade'] == '2.00'
+
+    def test_no_gpa_cgpa(self, sample_retake_result_html):
+        result = parse_retake_result_html(sample_retake_result_html)
+        assert result['GPA'] == ''
+        assert result['CGPA'] == ''
+
+    def test_empty_html(self):
+        result = parse_retake_result_html("<html><body></body></html>")
+        assert result.get('Name') is None
+        assert result['courses'] == []
+        assert result['exam_title'] == ''
+
+
+class TestMapExamToSheet:
+    def test_first_year_second_semester(self):
+        title = "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2023"
+        assert map_exam_to_sheet(title) == 'PerCourse_L1T2'
+
+    def test_third_year_first_semester(self):
+        title = "B.Sc. in CSE 3rd year 1st Semester Retake Examination of 2024"
+        assert map_exam_to_sheet(title) == 'PerCourse_L3T1'
+
+    def test_second_year_second_semester(self):
+        title = "B.Sc. in Textile Engineering Level-2 Term-2 Improvement Examination of 2025"
+        assert map_exam_to_sheet(title) == 'PerCourse_L2T2'
+
+    def test_unknown_format(self):
+        title = "Some random exam title without year/semester info"
+        assert map_exam_to_sheet(title) is None
+
+
+class TestFindCourseColumn:
+    def test_finds_existing_course(self):
+        course_name_map = {
+            'computernetworking': 7,
+            'softwareengineering': 8,
+            'math1204': 6,
+        }
+        assert find_course_column('MATH-1204', course_name_map) == 6
+
+    def test_returns_none_for_missing(self):
+        course_name_map = {'computernetworking': 7}
+        assert find_course_column('MATH-1204', course_name_map) is None
+
+
+class TestUpdateSheetWithRetakeData:
+    def _make_sheet_with_existing_grade(self):
+        ws = MagicMock()
+        ws.get_all_values.return_value = [
+            [
+                "Sl.", "Student's Name", "Student's ID", "Reg. No.", "GPA", "CGPA",
+                "MATH-1204", "CSE-1101", "Retake Courses",
+            ],
+            [""] * 9,
+            [
+                "1", "Test Student", "CS 001", "810", "2.50", "2.50",
+                "C", "", "",
+            ],
+        ]
+        return ws
+
+    def test_updates_if_grade_improved(self):
+        ws = self._make_sheet_with_existing_grade()
+        parsed = {
+            'Name': 'Test Student',
+            'Roll': 'CS 001',
+            'Reg': '810',
+            'courses': [
+                {'name': 'Methods of Integration', 'code': 'MATH-1204', 'grade': '3.50'},
+            ],
+        }
+        header_indices, regs, course_map, values, _, _ = get_sheet_data(ws)
+        assert header_indices is not None
+        count = update_sheet_with_retake_data(ws, parsed, 'PerCourse_L1T2', header_indices, regs, course_map, values)
+        assert count == 1
+        ws.batch_update.assert_called_once()
+
+    def test_skips_if_grade_not_improved(self):
+        ws = self._make_sheet_with_existing_grade()
+        parsed = {
+            'Name': 'Test Student',
+            'Roll': 'CS 001',
+            'Reg': '810',
+            'courses': [
+                {'name': 'Methods of Integration', 'code': 'MATH-1204', 'grade': '2.25'},
+            ],
+        }
+        header_indices, regs, course_map, values, _, _ = get_sheet_data(ws)
+        assert header_indices is not None
+        count = update_sheet_with_retake_data(ws, parsed, 'PerCourse_L1T2', header_indices, regs, course_map, values)
+        assert count == 0
+        ws.batch_update.assert_not_called()
+
+    def test_writes_if_cell_empty(self):
+        ws = self._make_sheet_with_existing_grade()
+        parsed = {
+            'Name': 'Test Student',
+            'Roll': 'CS 001',
+            'Reg': '810',
+            'courses': [
+                {'name': 'CSE Intro', 'code': 'CSE-1101', 'grade': '3.00'},
+            ],
+        }
+        header_indices, regs, course_map, values, _, _ = get_sheet_data(ws)
+        assert header_indices is not None
+        count = update_sheet_with_retake_data(ws, parsed, 'PerCourse_L1T2', header_indices, regs, course_map, values)
+        assert count == 1
+        ws.batch_update.assert_called_once()
+
+    def test_reg_not_found_skips(self):
+        ws = self._make_sheet_with_existing_grade()
+        parsed = {
+            'Name': 'Nobody',
+            'Roll': 'XX 000',
+            'Reg': '999',
+            'courses': [{'name': 'X', 'code': 'X-000', 'grade': '4.00'}],
+        }
+        header_indices, regs, course_map, values, _, _ = get_sheet_data(ws)
+        assert header_indices is not None
+        count = update_sheet_with_retake_data(ws, parsed, 'PerCourse_L1T2', header_indices, regs, course_map, values)
+        assert count == 0
+        ws.batch_update.assert_not_called()

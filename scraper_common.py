@@ -48,6 +48,15 @@ RETRY_ATTEMPTS = 3
 RETRY_BACKOFF = 2
 PROGRESS_FILE: str | None = None
 LOG_FILE: TextIO | None = None
+RETAKE_MODE: bool = False
+RETAKE_PROGRESS_FILE: str | None = None
+
+GRADE_POINTS: dict[str, float] = {
+    "A+": 4.00, "A": 3.75, "A-": 3.50,
+    "B+": 3.25, "B": 3.00, "B-": 2.75,
+    "C+": 2.50, "C": 2.25, "D": 2.00,
+    "F": 0.00, "Fail": 0.00,
+}
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
@@ -58,6 +67,7 @@ DEFAULTS = {
     "program": "B.Sc. in Computer Science and Engineering",
     "session": "2021-2022",
     "exam": "",
+    "retake_exam": "",
     "start_regi": 710,
     "end_regi": 813,
     "request_delay": 1,
@@ -73,7 +83,7 @@ def configure(data_dir, credentials_file, env_file, browser="firefox", use_inqui
     Call this once at startup before any other functions.
     """
     global DATA_DIR, CREDENTIALS_FILE, ENV_FILE, BROWSER, USE_INQUIRERPY
-    global PROGRESS_FILE, CONFIG
+    global PROGRESS_FILE, RETAKE_PROGRESS_FILE, CONFIG
 
     DATA_DIR = data_dir  # pyright: ignore[reportConstantRedefinition]
     CREDENTIALS_FILE = credentials_file  # pyright: ignore[reportConstantRedefinition]
@@ -84,6 +94,7 @@ def configure(data_dir, credentials_file, env_file, browser="firefox", use_inqui
     assert DATA_DIR is not None
     os.makedirs(DATA_DIR, exist_ok=True)
     PROGRESS_FILE = os.path.join(DATA_DIR, 'progress.json')  # pyright: ignore[reportConstantRedefinition]
+    RETAKE_PROGRESS_FILE = os.path.join(DATA_DIR, 'progress_retake.json')  # pyright: ignore[reportConstantRedefinition]
     CONFIG = load_config()  # pyright: ignore[reportConstantRedefinition]
 
 
@@ -168,6 +179,233 @@ def parse_result_html(html_content):
                     "grade": cols[4].get_text(strip=True) or '0.00'
                 })
     return student_data
+
+
+def grade_to_point(grade_str):
+    """Convert a letter grade (e.g., 'A+', 'B') to a numeric grade point."""
+    if not grade_str:
+        return 0.0
+    grade_str = grade_str.strip()
+    if grade_str in GRADE_POINTS:
+        return GRADE_POINTS[grade_str]
+    try:
+        return float(grade_str)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def parse_retake_result_html(html_content):
+    """Parses a retake/improvement result page.
+
+    Same structure as normal results but NO GPA/CGPA — only course grades.
+    Also extracts the exam title to determine which semester the retake is for.
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    student_data = {}
+
+    info_rows = soup.select('div#exam_result > div.row > div.col-12 > table.table-bordered > tbody > tr')
+    for row in info_rows:
+        headers = row.find_all('th')
+        if headers and len(headers) == 1:
+            header_text = headers[0].get_text(strip=True)
+            if "Student's Name" in header_text:
+                student_data['Name'] = row.find('td').get_text(strip=True)
+            elif "Class Roll" in header_text:
+                student_data['Roll'] = row.find('td').get_text(strip=True)
+            elif "Registration" in header_text:
+                student_data['Reg'] = row.find('td').get_text(strip=True)
+
+    h2_tag = soup.select_one('div#exam_result h2')
+    student_data['exam_title'] = normalize_text(h2_tag.get_text(strip=True)) if h2_tag else ''
+
+    student_data['GPA'] = ''
+    student_data['CGPA'] = ''
+    student_data['Fail Subs'] = ''
+
+    student_data['courses'] = []
+    course_table = soup.select_one('th table[width="100%"]')
+    if course_table:
+        for row in course_table.find_all('tr')[1:]:
+            cols = row.find_all('td')
+            if len(cols) == 5:
+                code = cols[1].get_text(strip=True).replace(' ', '-')
+                student_data['courses'].append({
+                    "name": cols[2].get_text(strip=True),
+                    "code": code,
+                    "grade": cols[4].get_text(strip=True) or '0.00'
+                })
+    return student_data
+
+
+def map_exam_to_sheet(exam_title):
+    """Maps a retake exam title to the corresponding PerCourse worksheet name.
+
+    e.g. 'B.Sc. in CSE 1st year 2nd Semester Improvement...' -> 'PerCourse_L1T2'
+    Handles both "Nth year Nth Semester" and "Level-N Term-N" formats.
+    Returns None if can't determine from title.
+    """
+    exam_title = normalize_text(exam_title).lower()
+
+    level_match = re.search(r'(\d+)(?:st|nd|rd|th)\s+year', exam_title)
+    if not level_match:
+        level_match = re.search(r'level[\s-]*(\d+)', exam_title)
+
+    term_match = re.search(r'(\d+)(?:st|nd|rd|th)\s+semester', exam_title)
+    if not term_match:
+        term_match = re.search(r'term[\s-]*(\d+)', exam_title)
+
+    if level_match and term_match:
+        level = level_match.group(1)
+        term = term_match.group(1)
+        return f"PerCourse_L{level}T{term}"
+
+    return None
+
+
+def find_course_column(course_code, course_name_map):
+    """Finds the column index for a course code in the sheet.
+
+    Looks up by sanitized course code in the course_name_map.
+    Returns the column index or None if not found.
+    """
+    sanitized = sanitize_text(course_code)
+    return course_name_map.get(sanitized)
+
+
+def update_sheet_with_retake_data(worksheet, parsed_data, target_sheet_name,
+                                   header_indices, all_reg_numbers_in_sheet,
+                                   course_name_map, all_sheet_values):
+    """Updates specific course cells with improved grades from a retake result.
+
+    Only writes if the new grade point is higher than the existing grade,
+    or if the cell is empty.
+    Returns the count of cells updated.
+    """
+    scraped_reg = parsed_data['Reg']
+    try:
+        target_list_index = all_reg_numbers_in_sheet.index(scraped_reg)
+        target_row_num = target_list_index + 2
+        existing_row_data = all_sheet_values[target_list_index + 1]
+    except ValueError:
+        ts(f"Could not find registration '{scraped_reg}' in sheet '{target_sheet_name}'. Skipping.")
+        return 0
+
+    ts(f"Found on row {target_row_num}. Comparing grades for retake update...")
+    update_requests = []
+    updated_count = 0
+
+    for course in parsed_data.get('courses', []):
+        course_code = course['code']
+        new_grade = course['grade']
+        new_point = grade_to_point(new_grade)
+
+        col_index = find_course_column(course_code, course_name_map)
+        if col_index is None:
+            ts(f"  Course '{course_code}' not found in sheet columns. Skipping.")
+            continue
+
+        existing_val = existing_row_data[col_index]
+        existing_point = grade_to_point(existing_val) if existing_val else 0.0
+
+        if not existing_val:
+            col_letter = gspread.utils.rowcol_to_a1(1, col_index + 1).rstrip('1')  # pyright: ignore[reportAttributeAccessIssue]
+            update_requests.append({'range': f'{col_letter}{target_row_num}', 'values': [[new_grade]]})
+            ts(f"  {course_code}: empty -> {new_grade}")
+            updated_count += 1
+        elif new_point > existing_point:
+            col_letter = gspread.utils.rowcol_to_a1(1, col_index + 1).rstrip('1')  # pyright: ignore[reportAttributeAccessIssue]
+            update_requests.append({'range': f'{col_letter}{target_row_num}', 'values': [[new_grade]]})
+            ts(f"  {course_code}: {existing_val} -> {new_grade} (improved)")
+            updated_count += 1
+        else:
+            ts(f"  {course_code}: {existing_val} unchanged (new: {new_grade})")
+
+    if update_requests:
+        worksheet.batch_update(update_requests, value_input_option='USER_ENTERED')
+        ts(f"✅ Updated {updated_count} course grade(s) in '{target_sheet_name}'.")
+    else:
+        ts("No grades to update — all unchanged or not found.")
+
+    return updated_count
+
+
+def select_retake_exam(force=False):
+    """Interactive exam selector filtered for retake/improvement exams only."""
+    current_config = load_config()
+    if current_config.get("retake_exam") and not force:
+        ts(f"Current retake exam: \"{current_config['retake_exam']}\"")
+        ts("Use --force to re-select.")
+        return
+
+    ts("Loading available retake/improvement exams...")
+    driver = initialize_webdriver()
+
+    try:
+        driver.get(URL)
+        wait = WebDriverWait(driver, 15)
+
+        Select(wait.until(EC.presence_of_element_located((By.ID, 'pro_id')))).select_by_visible_text(FORM_DATA['program'])
+        Select(wait.until(EC.presence_of_element_located((By.ID, 'sess_id')))).select_by_visible_text(FORM_DATA['session'])
+
+        exam_select = Select(wait.until(EC.presence_of_element_located((By.ID, 'exam_id'))))
+        time.sleep(1)
+
+        all_exams = [normalize_text(opt.text) for opt in exam_select.options if opt.text.strip()]
+        retake_keywords = ['improvement', 'retake']
+        retake_exams = [e for e in all_exams if any(kw in e.lower() for kw in retake_keywords)]
+
+        if not retake_exams:
+            ts("No retake/improvement exams found for this program/session.")
+            ts("Available exams:")
+            for e in all_exams:
+                ts(f"  - {e}")
+            return
+
+        ts(f"Found {len(retake_exams)} retake/improvement exam(s):")
+
+        inquirerpy_available = False
+        inq_prompt = None
+        if USE_INQUIRERPY:
+            try:
+                from InquirerPy import prompt as _inq_prompt
+                inq_prompt = _inq_prompt
+                inquirerpy_available = True
+            except ImportError:
+                pass
+
+        if inquirerpy_available and inq_prompt is not None:
+            questions = [
+                {
+                    "type": "fuzzy",
+                    "name": "exam",
+                    "message": "Select retake/improvement exam:",
+                    "choices": retake_exams,
+                }
+            ]
+            answers = inq_prompt(questions)
+            selected = answers["exam"]
+        else:
+            ts("")
+            for i, opt in enumerate(retake_exams, 1):
+                ts(f"  {i}. {opt}")
+            ts("")
+
+            while True:
+                try:
+                    choice = input(f"Select exam (1-{len(retake_exams)}): ").strip()
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(retake_exams):
+                        selected = retake_exams[idx]
+                        break
+                    ts(f"Invalid choice. Enter a number between 1 and {len(retake_exams)}.")
+                except (ValueError, EOFError):
+                    ts("Invalid input. Enter a number.")
+
+        current_config["retake_exam"] = str(selected)
+        save_config(current_config)
+        ts(f"✅ Updated config.json with retake exam: \"{selected}\"")
+    finally:
+        driver.quit()
 
 
 # ===================================================================
@@ -445,6 +683,25 @@ def get_worksheet():
         return None
 
 
+def get_spreadsheet():
+    """Authenticates with Google Sheets and returns the spreadsheet object."""
+    ts("Authenticating with Google Sheets...")
+    assert CREDENTIALS_FILE is not None
+    if not os.path.exists(CREDENTIALS_FILE):
+        ts(f"FATAL ERROR: credentials.json not found at: {CREDENTIALS_FILE}")
+        return None
+
+    try:
+        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_url(GOOGLE_SHEET_URL)
+        ts(f"✅ Successfully connected to '{spreadsheet.title}'.")
+        return spreadsheet
+    except Exception as e:
+        ts(f"FATAL ERROR: Could not connect to Google Sheets. {e}")
+        return None
+
+
 def get_sheet_data(worksheet):
     """Fetches and processes data from the worksheet."""
     ts("Fetching sheet data for comparison...")
@@ -472,7 +729,14 @@ def get_sheet_data(worksheet):
         has_retake_column = False
 
     all_reg_numbers_in_sheet = [row[header_indices["reg"]] for row in all_sheet_values[1:]]
-    course_name_map = {sanitize_text(header.split('\n')[0].strip()): i for i, header in enumerate(sheet_headers) if header.strip()}
+    row2_codes = all_sheet_values[1] if len(all_sheet_values) > 1 else []
+    course_name_map = {}
+    for i, header in enumerate(sheet_headers):
+        if header.strip():
+            course_name_map[sanitize_text(header.split('\n')[0].strip())] = i
+    for i, code in enumerate(row2_codes):
+        if code.strip():
+            course_name_map[sanitize_text(code)] = i
 
     has_course_columns = header_indices['retake'] > header_indices['gpa'] + 2
 
@@ -575,7 +839,7 @@ def update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_r
                 update_requests.append({'range': f'{col_letter}{target_row_num}', 'values': [[course['grade']]]})
 
     if update_requests:
-        worksheet.batch_update(update_requests)
+        worksheet.batch_update(update_requests, value_input_option='USER_ENTERED')
         ts(f"✅ Successfully wrote {len(update_requests)} new value(s) to the Google Sheet.")
     else:
         ts("No empty cells to update. Data is already present.")
@@ -693,6 +957,225 @@ def scrape_student_result(driver, reg_num):
         except Exception as e:
             ts(f"[ERROR] Unexpected error for {reg_num}: {e}")
             return None
+
+
+def _load_retake_progress():
+    """Load list of already-scraped reg numbers from retake progress file."""
+    if RETAKE_PROGRESS_FILE and os.path.exists(RETAKE_PROGRESS_FILE):
+        with open(RETAKE_PROGRESS_FILE, 'r') as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            current_key = _make_retake_progress_key()
+            if data.get("config_key") == current_key:
+                scraped = data.get("scraped", [])
+                ts(f"[INFO] Loaded retake progress: {len(scraped)} students already scraped")
+                return scraped
+            else:
+                ts("[INFO] Retake progress file exists but config changed — starting fresh")
+                return []
+        return data
+    return []
+
+
+def _save_retake_progress(scraped_list):
+    """Save retake progress list to disk with config key for scoping."""
+    assert RETAKE_PROGRESS_FILE is not None
+    data = {
+        "config_key": _make_retake_progress_key(),
+        "scraped": scraped_list
+    }
+    with open(RETAKE_PROGRESS_FILE, 'w') as f:
+        json.dump(data, f)
+
+
+def _make_retake_progress_key():
+    """Create a deterministic key from the current config to scope retake progress."""
+    key_parts = f"{GOOGLE_SHEET_URL}|{WORKSHEET_NAME}|{FORM_DATA.get('retake_exam', '')}"
+    return hashlib.md5(key_parts.encode()).hexdigest()[:12]
+
+
+def scrape_retake_results(dry_run=False, reg_num=None):
+    """Main retake scraping loop.
+
+    Fetches retake/improvement results and updates PerCourse sheets with
+    improved grades. Uses separate progress tracking from normal mode.
+    """
+    start_time = time.time()
+
+    retake_exam = CONFIG.get('retake_exam', '')
+    if not retake_exam:
+        ts("ERROR: No retake exam configured. Run with --list-exams --retake to select one.")
+        return
+
+    if reg_num:
+        start_regi = reg_num
+        end_regi = reg_num
+    else:
+        start_regi = START_REGI
+        end_regi = END_REGI
+
+    if dry_run:
+        ts("[DRY RUN] Scraping retake results without writing to sheet.")
+
+    ts("\n--- Retake Mode ---")
+    ts(f"--- Retake Exam: \"{retake_exam}\" ---")
+
+    scraped_list = _load_retake_progress()
+    total = end_regi - start_regi + 1
+    already_done = len([r for r in scraped_list if start_regi <= int(r) <= end_regi])
+    remaining = total - already_done
+
+    ts(f"\n--- Will scrape reg {start_regi}–{end_regi} ({total} students, {remaining} remaining) ---")
+    if not dry_run:
+        ts("--- Press Ctrl+C to cancel ---\n")
+
+    spreadsheet = get_spreadsheet()
+    if not spreadsheet:
+        return
+
+    driver = initialize_webdriver()
+
+    # Save original exam and set retake exam
+    original_exam = FORM_DATA['exam']
+    FORM_DATA['exam'] = retake_exam  # pyright: ignore[reportConstantRedefinition]
+
+    stats = {"updated": 0, "unchanged": 0, "skipped": 0, "failed": 0}
+    interrupted = False
+
+    try:
+        for regi_num in range(start_regi, end_regi + 1):
+            reg_str = str(regi_num)
+
+            if reg_str in scraped_list:
+                ts(f"[SKIP] Reg {reg_str} already scraped (from progress file)")
+                stats["skipped"] += 1
+                continue
+
+            ts(f"\n--- Processing Registration No.: {reg_str} ---")
+            parsed_data = None
+            for attempt in range(1, RETRY_ATTEMPTS + 1):
+                try:
+                    driver.get(URL)
+                    wait = WebDriverWait(driver, 15)
+
+                    Select(wait.until(EC.presence_of_element_located((By.ID, 'pro_id')))).select_by_visible_text(FORM_DATA['program'])
+                    Select(wait.until(EC.presence_of_element_located((By.ID, 'sess_id')))).select_by_visible_text(FORM_DATA['session'])
+
+                    normalized_exam = normalize_text(FORM_DATA['exam'])
+                    exam_select = Select(wait.until(EC.presence_of_element_located((By.ID, 'exam_id'))))
+                    matched = False
+                    for option in exam_select.options:
+                        if normalize_text(option.text) == normalized_exam:
+                            option.click()
+                            matched = True
+                            break
+                    if not matched:
+                        ts("[ERROR] Retake exam not found in dropdown.")
+                        break
+
+                    driver.find_element(By.ID, 'reg_no').send_keys(reg_str)
+                    driver.find_element(By.XPATH, "//button[text()='Submit']").click()
+
+                    wait.until(EC.presence_of_element_located((By.XPATH, "//h3[contains(text(), 'Result')]")))
+                    time.sleep(0.5)
+
+                    parsed_data = parse_retake_result_html(driver.page_source)
+                    if parsed_data and 'Reg' in parsed_data:
+                        break
+                    else:
+                        ts(f"[WARN] Retake result not found for Reg {reg_str}.")
+                        parsed_data = None
+                        break
+
+                except (TimeoutException, NoSuchElementException) as e:
+                    ts(f"[WARN] Attempt {attempt} failed for {reg_str}: {type(e).__name__}: {e}")
+                    if attempt < RETRY_ATTEMPTS:
+                        wait_time = RETRY_BACKOFF * (2 ** (attempt - 1))
+                        ts(f"[INFO] Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        ts(f"[ERROR] All {RETRY_ATTEMPTS} attempts failed for {reg_str}. Skipping.")
+                except Exception as e:
+                    ts(f"[ERROR] Unexpected error for {reg_str}: {e}")
+                    break
+
+            if parsed_data and parsed_data.get('courses'):
+                exam_title = parsed_data.get('exam_title', '')
+                target_sheet_name = map_exam_to_sheet(exam_title)
+
+                if not target_sheet_name:
+                    ts(f"Could not determine target sheet from exam title: '{exam_title}'. Skipping.")
+                    stats["failed"] += 1
+                else:
+                    ts(f"Target sheet: {target_sheet_name}")
+
+                    if dry_run:
+                        courses_str = ", ".join([f"{c['code']}: {c['grade']}" for c in parsed_data['courses']])
+                        ts(f"[DRY RUN] Reg {reg_str} → {parsed_data.get('Name', '?')}, Courses: [{courses_str}]")
+                        stats["updated"] += 1
+                    else:
+                        target_ws = None
+                        try:
+                            target_ws = spreadsheet.worksheet(target_sheet_name)
+                        except Exception:
+                            ts(f"Could not open worksheet '{target_sheet_name}'. Skipping.")
+                            stats["failed"] += 1
+                            scraped_list.append(reg_str)
+                            _save_retake_progress(scraped_list)
+                            if REQUEST_DELAY > 0 and regi_num < end_regi:
+                                time.sleep(REQUEST_DELAY)
+                            continue
+
+                        header_indices, all_reg_numbers_in_sheet, course_name_map, all_sheet_values, _, _ = get_sheet_data(target_ws)
+                        if not header_indices:
+                            ts(f"Could not read sheet data from '{target_sheet_name}'. Skipping.")
+                            stats["failed"] += 1
+                        else:
+                            updated = update_sheet_with_retake_data(
+                                target_ws, parsed_data, target_sheet_name,
+                                header_indices, all_reg_numbers_in_sheet,
+                                course_name_map, all_sheet_values
+                            )
+                            if updated > 0:
+                                stats["updated"] += 1
+                            else:
+                                stats["unchanged"] += 1
+
+                scraped_list.append(reg_str)
+                _save_retake_progress(scraped_list)
+            elif parsed_data and not parsed_data.get('courses'):
+                ts(f"No retake courses found for Reg {reg_str}. Student may not have taken this retake.")
+                stats["unchanged"] += 1
+                scraped_list.append(reg_str)
+                _save_retake_progress(scraped_list)
+            else:
+                stats["failed"] += 1
+
+            if REQUEST_DELAY > 0 and regi_num < end_regi:
+                time.sleep(REQUEST_DELAY)
+
+    except KeyboardInterrupt:
+        interrupted = True
+        ts("\nInterrupted — saving progress...")
+    finally:
+        FORM_DATA['exam'] = original_exam  # pyright: ignore[reportConstantRedefinition]
+        driver.quit()
+        ts("WebDriver closed.")
+
+    if not interrupted and stats['failed'] == 0:
+        _save_retake_progress([])
+        ts("[INFO] Retake progress file cleared — all students processed successfully.")
+    elif stats['failed'] > 0:
+        ts(f"[INFO] Retake progress file kept — {stats['failed']} student(s) failed and will be retried on next run.")
+
+    elapsed = time.time() - start_time
+    minutes, seconds = divmod(int(elapsed), 60)
+    ts(f"\n--- Retake Summary{'(interrupted)' if interrupted else ''}{'(dry run)' if dry_run else ''} ---")
+    ts(f"Updated (grade improved): {stats['updated']}")
+    ts(f"Unchanged: {stats['unchanged']}")
+    ts(f"Skipped (already done): {stats['skipped']}")
+    ts(f"Failed: {stats['failed']}")
+    ts(f"Total time: {minutes}m {seconds}s")
 
 
 def main(dry_run=False, reg_num=None):
@@ -915,7 +1398,7 @@ def validate_config():
 def run():
     """CLI argument parsing and main logic. Call from entry point scripts."""
     global CONFIG, GOOGLE_SHEET_URL, WORKSHEET_NAME, FORM_DATA
-    global START_REGI, END_REGI, REQUEST_DELAY, LOG_FILE
+    global START_REGI, END_REGI, REQUEST_DELAY, LOG_FILE, RETAKE_MODE
 
     import argparse
 
@@ -926,6 +1409,7 @@ def run():
     parser.add_argument("--dry-run", action="store_true", help="Scrape without writing to sheet")
     parser.add_argument("--log", action="store_true", help="Save output to a log file")
     parser.add_argument("--reg", type=int, help="Scrape a single reg number")
+    parser.add_argument("--retake", action="store_true", help="Retake/improvement mode — update PerCourse sheets with improved grades")
     parser.add_argument("--sheet-url", type=str, help="Google Sheet URL (overrides config)")
     parser.add_argument("--worksheet", type=str, help="Worksheet name (overrides config)")
     parser.add_argument("--program", type=str, help="Program name (overrides config)")
@@ -936,6 +1420,8 @@ def run():
     parser.add_argument("--show-config", action="store_true", help="Print active config and exit")
     parser.add_argument("--status", action="store_true", help="Print progress status and exit")
     args = parser.parse_args()
+
+    RETAKE_MODE = args.retake  # pyright: ignore[reportConstantRedefinition]
 
     if args.sheet_url:
         CONFIG["google_sheet_url"] = args.sheet_url
@@ -954,12 +1440,15 @@ def run():
     WORKSHEET_NAME = CONFIG["worksheet_name"]  # pyright: ignore[reportConstantRedefinition]
     FORM_DATA["program"] = str(CONFIG["program"])
     FORM_DATA["session"] = str(CONFIG["session"])
-    FORM_DATA["exam"] = str(CONFIG["exam"])
+    FORM_DATA["exam"] = str(CONFIG.get("exam", ""))
     START_REGI = CONFIG["start_regi"]  # pyright: ignore[reportConstantRedefinition]
     END_REGI = CONFIG["end_regi"]  # pyright: ignore[reportConstantRedefinition]
 
     if args.list_exams:
-        select_exam(force=args.force)
+        if RETAKE_MODE:
+            select_retake_exam(force=args.force)
+        else:
+            select_exam(force=args.force)
     elif args.validate:
         validate_config()
     elif args.show_config:
@@ -974,9 +1463,14 @@ def run():
                 ts("\nSetup cancelled.")
                 sys.exit(1)
 
-        if not CONFIG.get("exam"):
-            select_exam(force=False)
-            CONFIG = load_config()  # pyright: ignore[reportConstantRedefinition]
+        if RETAKE_MODE:
+            if not CONFIG.get("retake_exam"):
+                select_retake_exam(force=False)
+                CONFIG = load_config()  # pyright: ignore[reportConstantRedefinition]
+        else:
+            if not CONFIG.get("exam"):
+                select_exam(force=False)
+                CONFIG = load_config()  # pyright: ignore[reportConstantRedefinition]
 
         if args.log:
             assert DATA_DIR is not None
@@ -987,11 +1481,18 @@ def run():
             ts(f"Logging to {log_filename}")
 
         if args.fresh:
-            save_progress([])
-            ts("[INFO] Progress cleared — starting fresh.")
+            if RETAKE_MODE:
+                _save_retake_progress([])
+                ts("[INFO] Retake progress cleared — starting fresh.")
+            else:
+                save_progress([])
+                ts("[INFO] Progress cleared — starting fresh.")
 
         try:
-            main(dry_run=args.dry_run, reg_num=args.reg)
+            if RETAKE_MODE:
+                scrape_retake_results(dry_run=args.dry_run, reg_num=args.reg)
+            else:
+                main(dry_run=args.dry_run, reg_num=args.reg)
         finally:
             if LOG_FILE:
                 LOG_FILE.close()
