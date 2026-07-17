@@ -1,0 +1,636 @@
+{
+  "program": "B.Sc. in Computer Science and Engineering",
+  "program_id": 14,
+  "sessions": {
+    "2025-2026": 26,
+    "2024-2025": 25,
+    "2023-2024": 24,
+    "2022-2023": 23,
+    "2021-2022": 22,
+    "2020-2021": 21,
+    "2019-2020": 20,
+    "2018-2019": 19,
+    "2017-2018": 18,
+    "2016-2017": 17,
+    "2015-2016": 16,
+    "2014-2015": 15,
+    "2013-2014": 14,
+    "2012-2013": 13,
+    "2011-2012": 12,
+    "2010-2011": 11,
+    "2009-2010": 10,
+    "2008-2009": 9,
+    "2007-2008": 8,
+    "2006-2007": 7,
+    "2005-2006": 6,
+    "2004-2005": 5,
+    "2003-2004": 4,
+    "2002-2003": 3,
+    "2001-2002": 2,
+    "2000-2001": 1,
+    "1999-2000": 100,
+    "1998-1999": 99,
+    "1997-1998": 98,
+    "1996-1997": 97,
+    "1995-1996": 96,
+    "1994-1995": 95,
+    "1993-1994": 94,
+    "1992-1993": 93,
+    "1991-1992": 92
+  },
+  "exams": [
+    {
+      "id": 1769,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Examination of 2024 (2020-2021)",
+      "type": "normal",
+      "year": 4,
+      "term": 1,
+      "exam_year": 2024,
+      "session": "2020-2021"
+    },
+    {
+      "id": 1768,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Improvement Examination of 2024 (Retake/Improvement)",
+      "type": "retake",
+      "year": 4,
+      "term": 1,
+      "exam_year": 2024
+    },
+    {
+      "id": 1699,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2024",
+      "type": "normal",
+      "year": 3,
+      "term": 1,
+      "exam_year": 2024
+    },
+    {
+      "id": 1698,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Improvement Examination of 2024 (Retake/Improvement)",
+      "type": "retake",
+      "year": 3,
+      "term": 1,
+      "exam_year": 2024
+    },
+    {
+      "id": 1563,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2024",
+      "type": "normal",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2024
+    },
+    {
+      "id": 1562,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Improvement Examination of 2024 (Retake/Improvement)",
+      "type": "retake",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2024
+    },
+    {
+      "id": 1406,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 2nd Semester Examination of 2023 (Old Syllabus)",
+      "type": "normal",
+      "year": 4,
+      "term": 2,
+      "exam_year": 2023,
+      "curriculum": "old"
+    },
+    {
+      "id": 1398,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 2nd Semester Examination of 2023",
+      "type": "normal",
+      "year": 4,
+      "term": 2,
+      "exam_year": 2023
+    },
+    {
+      "id": 1388,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)",
+      "type": "retake",
+      "year": 3,
+      "term": 2,
+      "exam_year": 2023
+    },
+    {
+      "id": 1387,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2023",
+      "type": "normal",
+      "year": 3,
+      "term": 2,
+      "exam_year": 2023
+    },
+    {
+      "id": 1375,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Examination of 2024",
+      "type": "normal",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2024
+    },
+    {
+      "id": 1374,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Improvement Examination of 2024 (Retake/Improvement)",
+      "type": "retake",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2024
+    },
+    {
+      "id": 1299,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)",
+      "type": "retake",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2023
+    },
+    {
+      "id": 1298,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2023",
+      "type": "normal",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2023
+    },
+    {
+      "id": 1242,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Special Improvement Examination of 2021 (Special Improvement)",
+      "type": "retake",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2021,
+      "special": true
+    },
+    {
+      "id": 1222,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)",
+      "type": "retake",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2023
+    },
+    {
+      "id": 1221,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2023",
+      "type": "normal",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2023
+    },
+    {
+      "id": 1195,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Examination of 2023 (New Curriculum)",
+      "type": "normal",
+      "year": 4,
+      "term": 1,
+      "exam_year": 2023,
+      "curriculum": "new"
+    },
+    {
+      "id": 1133,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2023 (New Curriculum)",
+      "type": "normal",
+      "year": 3,
+      "term": 1,
+      "exam_year": 2023,
+      "curriculum": "new"
+    },
+    {
+      "id": 1132,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Improvement Examination of 2023 (Retake/Improvement - New Curriculum)",
+      "type": "retake",
+      "year": 3,
+      "term": 1,
+      "exam_year": 2023,
+      "curriculum": "new"
+    },
+    {
+      "id": 1053,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Improvement Examination of 2023 (Retake/Improvement)",
+      "type": "retake",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2023
+    },
+    {
+      "id": 1047,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2023",
+      "type": "normal",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2023
+    },
+    {
+      "id": 967,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Improvement Examination of 2023 (Retake/Improvement)",
+      "type": "retake",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2023
+    },
+    {
+      "id": 966,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Examination of 2023",
+      "type": "normal",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2023
+    },
+    {
+      "id": 951,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Improvement Semester Examination of 2022 (Retake/Improvement)",
+      "type": "retake",
+      "year": 3,
+      "term": 2,
+      "exam_year": 2022
+    },
+    {
+      "id": 950,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2022",
+      "type": "normal",
+      "year": 3,
+      "term": 2,
+      "exam_year": 2022
+    },
+    {
+      "id": 890,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 2nd Semester Examination of 2022 (2018-2019)",
+      "type": "normal",
+      "year": 4,
+      "term": 2,
+      "exam_year": 2022,
+      "session": "2018-2019"
+    },
+    {
+      "id": 889,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Improvement Examination of 2022 (Retake/Improvement - 20218-2019)",
+      "type": "retake",
+      "year": 4,
+      "term": 1,
+      "exam_year": 2022,
+      "session": "2018-2019"
+    },
+    {
+      "id": 858,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Retake/Improvement Examination of 2022 (Retake/Improvement - Old Curriculum)",
+      "type": "retake",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2022,
+      "curriculum": "old"
+    },
+    {
+      "id": 857,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Retake/Improvement Examination of 2022 (Retake/Improvement - New Curriculum)",
+      "type": "retake",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2022,
+      "curriculum": "new"
+    },
+    {
+      "id": 856,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2022",
+      "type": "normal",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2022
+    },
+    {
+      "id": 778,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2022 (Retake/Improvement)",
+      "type": "retake",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2022
+    },
+    {
+      "id": 777,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2022",
+      "type": "normal",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2022
+    },
+    {
+      "id": 694,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Improvement Examination of 2022 (Retake/Improvement - Old Curriculum)",
+      "type": "retake",
+      "year": 3,
+      "term": 1,
+      "exam_year": 2022,
+      "curriculum": "old"
+    },
+    {
+      "id": 693,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2022 (2019-2020)",
+      "type": "normal",
+      "year": 3,
+      "term": 1,
+      "exam_year": 2022,
+      "session": "2019-2020"
+    },
+    {
+      "id": 656,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Improvement Examination of 2022 (Retake/Improvement)",
+      "type": "retake",
+      "year": 4,
+      "term": 1,
+      "exam_year": 2022
+    },
+    {
+      "id": 655,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Examination of 2022",
+      "type": "normal",
+      "year": 4,
+      "term": 1,
+      "exam_year": 2022
+    },
+    {
+      "id": 608,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Improvement Examination of 2022 (Retake/Improvement - Old Curriculum)",
+      "type": "retake",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2022,
+      "curriculum": "old"
+    },
+    {
+      "id": 607,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Improvement Examination of 2022 (Retake/Improvement)",
+      "type": "retake",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2022
+    },
+    {
+      "id": 606,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2022",
+      "type": "normal",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2022
+    },
+    {
+      "id": 565,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 2nd Semester Examination of 2021 (2017-2018)",
+      "type": "normal",
+      "year": 4,
+      "term": 2,
+      "exam_year": 2021,
+      "session": "2017-2018"
+    },
+    {
+      "id": 553,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Retake Examination of 2022 (Retake/Improvement)",
+      "type": "retake",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2022
+    },
+    {
+      "id": 552,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Examination of 2022",
+      "type": "normal",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2022
+    },
+    {
+      "id": 484,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2021",
+      "type": "normal",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2021
+    },
+    {
+      "id": 483,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Retake Examination of 2021 (Retake/Improvement)",
+      "type": "retake",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2021
+    },
+    {
+      "id": 443,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Improvement Examination of 2021 (Retake/Improvement - New Curriculum)",
+      "type": "retake",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2021,
+      "curriculum": "new"
+    },
+    {
+      "id": 406,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Improvement Examination of 2021 (Retake/Improvement)",
+      "type": "retake",
+      "year": 3,
+      "term": 2,
+      "exam_year": 2021
+    },
+    {
+      "id": 405,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2021 (2018-2019)",
+      "type": "normal",
+      "year": 3,
+      "term": 2,
+      "exam_year": 2021,
+      "session": "2018-2019"
+    },
+    {
+      "id": 369,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2021 (Retake/Improvement - New Curriculum)",
+      "type": "retake",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2021,
+      "curriculum": "new"
+    },
+    {
+      "id": 367,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Retake Examination of 2021 (Retake/Improvement - Old Curriculum)",
+      "type": "retake",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2021,
+      "curriculum": "old"
+    },
+    {
+      "id": 366,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2021",
+      "type": "normal",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2021
+    },
+    {
+      "id": 362,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Examination of 2021",
+      "type": "normal",
+      "year": 4,
+      "term": 1,
+      "exam_year": 2021
+    },
+    {
+      "id": 292,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2021",
+      "type": "normal",
+      "year": 3,
+      "term": 1,
+      "exam_year": 2021
+    },
+    {
+      "id": 291,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Improvement Examination of 2021 (Retake/Improvement)",
+      "type": "retake",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2021
+    },
+    {
+      "id": 290,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2021 (New Curriculum - Regular)",
+      "type": "normal",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2021,
+      "curriculum": "new"
+    },
+    {
+      "id": 247,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Retake Examination of 2021 (Retake/Improvement - Old Curriculum)",
+      "type": "retake",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2021,
+      "curriculum": "old"
+    },
+    {
+      "id": 246,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2020 (2017-2018)",
+      "type": "normal",
+      "year": 3,
+      "term": 2,
+      "exam_year": 2020,
+      "session": "2017-2018"
+    },
+    {
+      "id": 245,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Examination of 2021",
+      "type": "normal",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2021
+    },
+    {
+      "id": 225,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Imp. Examination of 2020 (Retake/Improvement)",
+      "type": "retake",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2020
+    },
+    {
+      "id": 195,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Improvement Examination of 2020 (Retake/Improvement)",
+      "type": "retake",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2020
+    },
+    {
+      "id": 153,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Retake Examination of 2020 (Retake/Improvement)",
+      "type": "retake",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2020
+    },
+    {
+      "id": 150,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2020",
+      "type": "normal",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2020
+    },
+    {
+      "id": 144,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2020",
+      "type": "normal",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2020
+    },
+    {
+      "id": 136,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2020 (2017-2018)",
+      "type": "normal",
+      "year": 3,
+      "term": 1,
+      "exam_year": 2020,
+      "session": "2017-2018"
+    },
+    {
+      "id": 74,
+      "name": "1st Year 1st Semester B.Sc. in Computer Science & Engineering Examination 2020 (2019-2020)",
+      "type": "normal",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2020,
+      "session": "2019-2020"
+    },
+    {
+      "id": 73,
+      "name": "1st Year 1st Semester B.Sc. in Computer Science & Engineering Improvement Examination 2020 (2018-2019)",
+      "type": "retake",
+      "year": 1,
+      "term": 1,
+      "exam_year": 2020,
+      "session": "2018-2019"
+    },
+    {
+      "id": 60,
+      "name": "B.Sc. in Computer Science & Engineering 2nd Year 2nd Semester Examination 2019",
+      "type": "normal",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2019
+    },
+    {
+      "id": 59,
+      "name": "B.Sc. in Computer Science & Engineering 2nd Year 1st Semester Examination 2020",
+      "type": "normal",
+      "year": 2,
+      "term": 1,
+      "exam_year": 2020
+    }
+  ],
+  "notes": {
+    "scrape_2021_2022_batch": {
+      "session": "2021-2022",
+      "exams_needed": {
+        "L1T1": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Examination of 2022",
+        "L1T2": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2022",
+        "L2T1": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2022",
+        "L2T2": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2022",
+        "L3T1": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2022",
+        "L3T2": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2022",
+        "L4T1": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Examination of 2022",
+        "L4T2": "B.Sc. in Computer Science and Engineering 4th year 2nd Semester Examination of 2022 (2018-2019)"
+      }
+    },
+    "retake_exams": {
+      "L1T1": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Retake Examination of 2022 (Retake/Improvement)",
+      "L1T2": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2022 (Retake/Improvement)",
+      "L2T1": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Improvement Examination of 2022 (Retake/Improvement)",
+      "L2T2": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Retake/Improvement Examination of 2022 (Retake/Improvement - New Curriculum)",
+      "L3T1": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Improvement Examination of 2022 (Retake/Improvement - Old Curriculum)",
+      "L3T2": "B.Sc. in Computer Science and Engineering 3rd year 2nd Improvement Semester Examination of 2022 (Retake/Improvement)",
+      "L4T1": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Improvement Examination of 2022 (Retake/Improvement)",
+      "L4T2": "N/A"
+    }
+  }
+}
