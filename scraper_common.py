@@ -912,7 +912,8 @@ def recalculate_semester_gpa(worksheet, target_row_num, credit_hours,
 
     Reads course codes from sheet row 2, looks up credit hours and grade
     points from the student row, computes weighted average, and writes
-    to column E (GPA). Returns True if GPA was updated, False otherwise.
+    to column E (GPA). Uses max(existing, calculated) as sanity check.
+    Returns True if GPA was updated, False otherwise.
     """
     if not credit_hours:
         return False
@@ -939,9 +940,24 @@ def recalculate_semester_gpa(worksheet, target_row_num, credit_hours,
     if total_credits == 0:
         return False
 
-    new_gpa = round(total_points / total_credits, 2)
-    worksheet.update_cell(target_row_num, 5, new_gpa)
-    ts(f"  Recalculated GPA: {new_gpa} (from {total_credits} credits)")
+    formula_gpa = round(total_points / total_credits, 2)
+
+    existing_vals = worksheet.batch_get([f'E{target_row_num}'], value_render_option='FORMATTED_VALUE')[0]
+    existing_gpa = 0.0
+    if existing_vals and existing_vals[0] and existing_vals[0][0]:
+        try:
+            existing_gpa = float(existing_vals[0][0])
+        except (ValueError, TypeError):
+            existing_gpa = 0.0
+
+    if existing_gpa > formula_gpa:
+        ts(f"  GPA {existing_gpa} (existing) > {formula_gpa} (calculated) — keeping existing")
+        final_gpa = existing_gpa
+    else:
+        final_gpa = formula_gpa
+
+    worksheet.update_cell(target_row_num, 5, final_gpa)
+    ts(f"  Recalculated GPA: {final_gpa} (from {total_credits} credits)")
     return True
 
 
