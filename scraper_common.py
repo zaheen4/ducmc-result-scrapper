@@ -321,19 +321,19 @@ def update_sheet_with_retake_data(worksheet, parsed_data, target_sheet_name,
         else:
             ts(f"  {course_code}: {existing_val} unchanged (new: {new_grade})")
 
-        if update_requests:
-            worksheet.batch_update(update_requests, value_input_option='USER_ENTERED')
-            ts(f"✅ Updated {updated_count} course grade(s) in '{target_sheet_name}'.")
+    if update_requests:
+        worksheet.batch_update(update_requests, value_input_option='USER_ENTERED')
+        ts(f"✅ Updated {updated_count} course grade(s) in '{target_sheet_name}'.")
 
-            if credit_hours:
-                sheet_row_2 = all_sheet_values[1] if len(all_sheet_values) > 1 else []
-                updated_row = list(existing_row_data)
-                for course in parsed_data.get('courses', []):
-                    col_index = find_course_column(course['code'], course_name_map)
-                    if col_index is not None and col_index < len(updated_row):
-                        updated_row[col_index] = course['grade']
-                recalculate_semester_gpa(worksheet, target_row_num, credit_hours,
-                                         sheet_row_2, updated_row)
+        if credit_hours:
+            sheet_row_2 = all_sheet_values[1] if len(all_sheet_values) > 1 else []
+            updated_row = list(existing_row_data)
+            for course in parsed_data.get('courses', []):
+                col_index = find_course_column(course['code'], course_name_map)
+                if col_index is not None and col_index < len(updated_row):
+                    updated_row[col_index] = course['grade']
+            recalculate_semester_gpa(worksheet, target_row_num, credit_hours,
+                                     sheet_row_2, updated_row)
     else:
         ts("No grades to update — all unchanged or not found.")
 
