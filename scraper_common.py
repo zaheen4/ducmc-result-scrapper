@@ -903,10 +903,10 @@ def format_gpa_cgpa_columns(worksheet):
 
 
 def _load_credit_hours():
-    """Load credit hours mapping from data/credit_hours.json."""
+    """Load credit hours mapping from data/cse_credit_hours.json."""
     if not DATA_DIR:
         return None
-    path = os.path.join(DATA_DIR, 'credit_hours.json')
+    path = os.path.join(DATA_DIR, 'cse_credit_hours.json')
     if not os.path.exists(path):
         return None
     with open(path, 'r') as f:
