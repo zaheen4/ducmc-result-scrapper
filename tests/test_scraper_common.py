@@ -3,7 +3,7 @@
 import json
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
@@ -40,6 +40,8 @@ from scraper_common import (  # noqa: E402
     scrape_student_result,
     select_exam,
     ts,
+    recalculate_semester_gpa,
+    _load_credit_hours,
 )
 
 
@@ -972,3 +974,108 @@ class TestUpdateSheetWithRetakeData:
         count = update_sheet_with_retake_data(ws, parsed, 'PerCourse_L1T2', header_indices, regs, course_map, values)
         assert count == 0
         ws.batch_update.assert_not_called()
+
+
+class TestRecalculateSemesterGpa:
+    """Tests for recalculate_semester_gpa function."""
+
+    def _make_ws(self):
+        ws = MagicMock()
+        ws.update_cell = MagicMock()
+        return ws
+
+    def test_basic_gpa_calculation(self):
+        ws = self._make_ws()
+        credit_hours = {'MATH-1105': 3.0, 'CSE-1101': 2.0}
+        # Row 2 has course codes
+        sheet_row_2 = ['', '', 'MATH-1105', 'CSE-1101']
+        # Student has: A- (3.5) in MATH-1105, B+ (3.25) in CSE-1101
+        student_row = ['', '', 'A-', 'B+', '', '']
+
+        result = recalculate_semester_gpa(ws, 3, credit_hours, sheet_row_2, student_row)
+
+        assert result is True
+        # (3.5*3 + 3.25*2) / (3+2) = (10.5+6.5)/5 = 3.4
+        ws.update_cell.assert_called_once_with(3, 5, 3.4)
+
+    def test_skips_empty_grades(self):
+        ws = self._make_ws()
+        credit_hours = {'CSE-1101': 3.0, 'CHE-1104': 3.0}
+        sheet_row_2 = ['', 'CSE-1101', 'CHE-1104']
+        # CHE-1104 grade is empty
+        student_row = ['', 'A', '', '', '', '', '']
+
+        result = recalculate_semester_gpa(ws, 3, credit_hours, sheet_row_2, student_row)
+
+        assert result is True
+        # Only CSE-1101 counts: (3.75*3) / 3 = 3.75
+        ws.update_cell.assert_called_once_with(3, 5, 3.75)
+
+    def test_skips_unknown_course_codes(self):
+        ws = self._make_ws()
+        credit_hours = {'CSE-1101': 3.0}
+        sheet_row_2 = ['', 'CSE-1101', 'UNKNOWN-999']
+        student_row = ['', 'A', 'A', '', '', '', '']
+
+        result = recalculate_semester_gpa(ws, 3, credit_hours, sheet_row_2, student_row)
+
+        assert result is True
+        # Only CSE-1101 counts
+        ws.update_cell.assert_called_once_with(3, 5, 3.75)
+
+    def test_returns_false_when_no_credits(self):
+        ws = self._make_ws()
+        credit_hours = None
+        sheet_row_2 = ['', 'CSE-1101']
+        student_row = ['', 'A']
+
+        result = recalculate_semester_gpa(ws, 3, credit_hours, sheet_row_2, student_row)
+
+        assert result is False
+        ws.update_cell.assert_not_called()
+
+    def test_returns_false_when_zero_credits(self):
+        ws = self._make_ws()
+        credit_hours = {}
+        sheet_row_2 = ['', 'CSE-1101']
+        student_row = ['', 'A']
+
+        result = recalculate_semester_gpa(ws, 3, credit_hours, sheet_row_2, student_row)
+
+        assert result is False
+        ws.update_cell.assert_not_called()
+
+    def test_rounds_to_two_decimals(self):
+        ws = self._make_ws()
+        credit_hours = {'CSE-1101': 3.0, 'CHE-1104': 3.0}
+        sheet_row_2 = ['', 'CSE-1101', 'CHE-1104']
+        # A- (3.5) and B+ (3.25)
+        student_row = ['', 'A-', 'B+', '', '', '', '']
+
+        result = recalculate_semester_gpa(ws, 3, credit_hours, sheet_row_2, student_row)
+
+        assert result is True
+        # (3.5*3 + 3.25*3) / 6 = 20.25/6 = 3.375 -> rounds to 3.38
+        ws.update_cell.assert_called_once_with(3, 5, 3.38)
+
+
+class TestLoadCreditHours:
+    """Tests for _load_credit_hours function."""
+
+    def test_loads_credit_hours(self):
+        with patch('scraper_common.DATA_DIR', 'data'), \
+             patch('os.path.exists', return_value=True), \
+             patch('builtins.open', mock_open(read_data='{"CSE-1101": 3.0}')):
+            result = _load_credit_hours()
+            assert result == {'CSE-1101': 3.0}
+
+    def test_returns_none_when_no_data_dir(self):
+        with patch('scraper_common.DATA_DIR', None):
+            result = _load_credit_hours()
+            assert result is None
+
+    def test_returns_none_when_file_missing(self):
+        with patch('scraper_common.DATA_DIR', 'data'), \
+             patch('os.path.exists', return_value=False):
+            result = _load_credit_hours()
+            assert result is None

@@ -274,11 +274,12 @@ def find_course_column(course_code, course_name_map):
 
 def update_sheet_with_retake_data(worksheet, parsed_data, target_sheet_name,
                                    header_indices, all_reg_numbers_in_sheet,
-                                   course_name_map, all_sheet_values):
+                                   course_name_map, all_sheet_values,
+                                   credit_hours=None):
     """Updates specific course cells with improved grades from a retake result.
 
     Only writes if the new grade point is higher than the existing grade,
-    or if the cell is empty.
+    or if the cell is empty. Recalculates semester GPA if credit_hours provided.
     Returns the count of cells updated.
     """
     scraped_reg = parsed_data['Reg']
@@ -320,9 +321,19 @@ def update_sheet_with_retake_data(worksheet, parsed_data, target_sheet_name,
         else:
             ts(f"  {course_code}: {existing_val} unchanged (new: {new_grade})")
 
-    if update_requests:
-        worksheet.batch_update(update_requests, value_input_option='USER_ENTERED')
-        ts(f"✅ Updated {updated_count} course grade(s) in '{target_sheet_name}'.")
+        if update_requests:
+            worksheet.batch_update(update_requests, value_input_option='USER_ENTERED')
+            ts(f"✅ Updated {updated_count} course grade(s) in '{target_sheet_name}'.")
+
+            if credit_hours:
+                sheet_row_2 = all_sheet_values[1] if len(all_sheet_values) > 1 else []
+                updated_row = list(existing_row_data)
+                for course in parsed_data.get('courses', []):
+                    col_index = find_course_column(course['code'], course_name_map)
+                    if col_index is not None and col_index < len(updated_row):
+                        updated_row[col_index] = course['grade']
+                recalculate_semester_gpa(worksheet, target_row_num, credit_hours,
+                                         sheet_row_2, updated_row)
     else:
         ts("No grades to update — all unchanged or not found.")
 
@@ -884,6 +895,56 @@ def format_gpa_cgpa_columns(worksheet):
         ts(f"⚠️ Could not apply formatting. Error: {e}")
 
 
+def _load_credit_hours():
+    """Load credit hours mapping from data/credit_hours.json."""
+    if not DATA_DIR:
+        return None
+    path = os.path.join(DATA_DIR, 'credit_hours.json')
+    if not os.path.exists(path):
+        return None
+    with open(path, 'r') as f:
+        return json.load(f)
+
+
+def recalculate_semester_gpa(worksheet, target_row_num, credit_hours,
+                              sheet_row_2_codes, student_row_data):
+    """Recalculate and write semester GPA after course grade updates.
+
+    Reads course codes from sheet row 2, looks up credit hours and grade
+    points from the student row, computes weighted average, and writes
+    to column E (GPA). Returns True if GPA was updated, False otherwise.
+    """
+    if not credit_hours:
+        return False
+
+    total_points = 0.0
+    total_credits = 0.0
+
+    for col_index, code in enumerate(sheet_row_2_codes):
+        if not code or not str(code).strip():
+            continue
+        code_str = str(code).strip()
+        credits = credit_hours.get(code_str)
+        if credits is None:
+            continue
+
+        grade_val = student_row_data[col_index] if col_index < len(student_row_data) else ''
+        if not grade_val or not str(grade_val).strip():
+            continue
+
+        point = grade_to_point(str(grade_val))
+        total_points += point * credits
+        total_credits += credits
+
+    if total_credits == 0:
+        return False
+
+    new_gpa = round(total_points / total_credits, 2)
+    worksheet.update_cell(target_row_num, 5, new_gpa)
+    ts(f"  Recalculated GPA: {new_gpa} (from {total_credits} credits)")
+    return True
+
+
 # ===================================================================
 # Scraper Functions
 # ===================================================================
@@ -1131,10 +1192,12 @@ def scrape_retake_results(dry_run=False, reg_num=None):
                             ts(f"Could not read sheet data from '{target_sheet_name}'. Skipping.")
                             stats["failed"] += 1
                         else:
+                            credit_hours = _load_credit_hours()
                             updated = update_sheet_with_retake_data(
                                 target_ws, parsed_data, target_sheet_name,
                                 header_indices, all_reg_numbers_in_sheet,
-                                course_name_map, all_sheet_values
+                                course_name_map, all_sheet_values,
+                                credit_hours
                             )
                             if updated > 0:
                                 stats["updated"] += 1
