@@ -918,6 +918,7 @@ def recalculate_semester_gpa(worksheet, target_row_num, credit_hours,
     if not credit_hours:
         return False
 
+    sanitized_credits = {sanitize_text(k): v for k, v in credit_hours.items()}
     total_points = 0.0
     total_credits = 0.0
 
@@ -925,7 +926,7 @@ def recalculate_semester_gpa(worksheet, target_row_num, credit_hours,
         if not code or not str(code).strip():
             continue
         code_str = str(code).strip()
-        credits = credit_hours.get(code_str)
+        credits = sanitized_credits.get(sanitize_text(code_str))
         if credits is None:
             continue
 
