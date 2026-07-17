@@ -348,20 +348,20 @@ class TestSaveConfig:
 class TestProgress:
     def test_save_and_load_roundtrip(self, tmp_path):
         progress_file = tmp_path / "progress.json"
-        with patch('scraper_common.PROGRESS_FILE', str(progress_file)):
+        with patch('scraper_common._get_progress_file', return_value=str(progress_file)):
             save_progress(["100", "101", "102"])
             loaded = load_progress()
         assert loaded == ["100", "101", "102"]
 
     def test_load_progress_no_file(self, tmp_path):
         progress_file = tmp_path / "nonexistent.json"
-        with patch('scraper_common.PROGRESS_FILE', str(progress_file)):
+        with patch('scraper_common._get_progress_file', return_value=str(progress_file)):
             loaded = load_progress()
         assert loaded == []
 
     def test_save_progress_overwrites(self, tmp_path):
         progress_file = tmp_path / "progress.json"
-        with patch('scraper_common.PROGRESS_FILE', str(progress_file)):
+        with patch('scraper_common._get_progress_file', return_value=str(progress_file)):
             save_progress(["100"])
             save_progress(["100", "101"])
             loaded = load_progress()

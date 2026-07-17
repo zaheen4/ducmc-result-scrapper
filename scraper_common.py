@@ -46,7 +46,6 @@ END_REGI: int = 813
 REQUEST_DELAY: int = 1
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF = 2
-PROGRESS_FILE: str | None = None
 LOG_FILE: TextIO | None = None
 RETAKE_MODE: bool = False
 
@@ -82,7 +81,7 @@ def configure(data_dir, credentials_file, env_file, browser="firefox", use_inqui
     Call this once at startup before any other functions.
     """
     global DATA_DIR, CREDENTIALS_FILE, ENV_FILE, BROWSER, USE_INQUIRERPY
-    global PROGRESS_FILE, CONFIG
+    global CONFIG
 
     DATA_DIR = data_dir  # pyright: ignore[reportConstantRedefinition]
     CREDENTIALS_FILE = credentials_file  # pyright: ignore[reportConstantRedefinition]
@@ -92,7 +91,6 @@ def configure(data_dir, credentials_file, env_file, browser="firefox", use_inqui
 
     assert DATA_DIR is not None
     os.makedirs(DATA_DIR, exist_ok=True)
-    PROGRESS_FILE = os.path.join(DATA_DIR, 'progress.json')  # pyright: ignore[reportConstantRedefinition]
     CONFIG = load_config()  # pyright: ignore[reportConstantRedefinition]
 
 
@@ -473,10 +471,21 @@ def _make_progress_key():
     return hashlib.md5(key_parts.encode()).hexdigest()[:12]
 
 
+def _get_progress_file():
+    """Get the progress file path for the current exam."""
+    assert DATA_DIR is not None
+    exam = FORM_DATA.get('exam', '')
+    if exam:
+        exam_hash = hashlib.md5(exam.encode()).hexdigest()[:8]
+        return os.path.join(DATA_DIR, f'progress_{exam_hash}.json')
+    return os.path.join(DATA_DIR, 'progress.json')
+
+
 def load_progress():
-    """Load list of already-scraped reg numbers from progress.json."""
-    if PROGRESS_FILE and os.path.exists(PROGRESS_FILE):
-        with open(PROGRESS_FILE, 'r') as f:
+    """Load list of already-scraped reg numbers from progress file."""
+    progress_file = _get_progress_file()
+    if os.path.exists(progress_file):
+        with open(progress_file, 'r') as f:
             data = json.load(f)
         if isinstance(data, dict):
             current_key = _make_progress_key()
@@ -494,12 +503,12 @@ def load_progress():
 
 def save_progress(scraped_list):
     """Save progress list to disk with config key for scoping."""
-    assert PROGRESS_FILE is not None
+    progress_file = _get_progress_file()
     data = {
         "config_key": _make_progress_key(),
         "scraped": scraped_list
     }
-    with open(PROGRESS_FILE, 'w') as f:
+    with open(progress_file, 'w') as f:
         json.dump(data, f)
 
 
@@ -1377,7 +1386,7 @@ def show_config():
     ts(f"  Reg range:       {START_REGI} – {END_REGI} ({END_REGI - START_REGI + 1} students)")
     ts(f"  Request delay:   {REQUEST_DELAY}s")
     ts(f"  Credentials:     {CREDENTIALS_FILE}")
-    ts(f"  Progress file:   {PROGRESS_FILE}")
+    ts(f"  Progress file:   {_get_progress_file()}")
     ts("")
 
 
@@ -1390,7 +1399,7 @@ def show_status():
     ts(f"  Total students:  {total}")
     ts(f"  Scraped:         {len(scraped)}")
     ts(f"  Remaining:       {remaining}")
-    ts(f"  Progress file:   {PROGRESS_FILE}")
+    ts(f"  Progress file:   {_get_progress_file()}")
     if scraped:
         ts(f"  Scraped regs:    {', '.join(scraped[:10])}{'...' if len(scraped) > 10 else ''}")
     ts("")
@@ -1500,6 +1509,7 @@ def run():
     parser.add_argument("--reg", type=int, help="Scrape a single reg number")
     parser.add_argument("--retake", action="store_true", help="Retake/improvement mode — update PerCourse sheets with improved grades")
     parser.add_argument("--retake-exam", type=str, help="Retake exam name (overrides config, skips interactive selection)")
+    parser.add_argument("--exam", type=str, help="Exam name (overrides config, skips interactive selection)")
     parser.add_argument("--sheet-url", type=str, help="Google Sheet URL (overrides config)")
     parser.add_argument("--worksheet", type=str, help="Worksheet name (overrides config)")
     parser.add_argument("--program", type=str, help="Program name (overrides config)")
@@ -1527,6 +1537,8 @@ def run():
         CONFIG["end_regi"] = args.end_regi
     if args.retake_exam:
         CONFIG["retake_exam"] = args.retake_exam
+    if args.exam:
+        CONFIG["exam"] = args.exam
 
     GOOGLE_SHEET_URL = CONFIG["google_sheet_url"]  # pyright: ignore[reportConstantRedefinition]
     WORKSHEET_NAME = CONFIG["worksheet_name"]  # pyright: ignore[reportConstantRedefinition]
