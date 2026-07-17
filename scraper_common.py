@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any, TextIO
 
 import gspread
+from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -268,6 +269,49 @@ def find_course_column(course_code, course_name_map):
     return course_name_map.get(sanitized)
 
 
+def resolve_worksheet_from_exam(exam_title, spreadsheet):
+    """Auto-selects the correct PerCourse worksheet from an exam title.
+
+    Uses map_exam_to_sheet() to derive the base name (e.g. 'PerCourse_L1T2'),
+    then tries 'Copy of {name}' first, then '{name}'.
+    Returns (worksheet, resolved_name) or (None, None) if not found.
+    """
+    base_name = map_exam_to_sheet(exam_title)
+    if not base_name:
+        return None, None
+
+    for candidate in [f"Copy of {base_name}", base_name]:
+        try:
+            ws = spreadsheet.worksheet(candidate)
+            ts(f"✅ Auto-selected worksheet '{ws.title}' from exam title.")
+            return ws, ws.title
+        except Exception:
+            continue
+
+    ts(f"⚠️ Could not find worksheet '{base_name}' or 'Copy of {base_name}' in spreadsheet.")
+    return None, None
+
+
+def _batch_update_with_retry(worksheet, requests, value_input_option='RAW', max_retries=5):
+    """Calls worksheet.batch_update() with retry + backoff for 429 rate limits."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            worksheet.batch_update(requests, value_input_option=value_input_option)
+            return True
+        except APIError as e:
+            if '429' in str(e) or 'RATE_LIMIT_EXCEEDED' in str(e):
+                if attempt < max_retries:
+                    wait = 2 ** attempt
+                    ts(f"[RATE LIMIT] Sheets API quota hit (attempt {attempt}/{max_retries}). Retrying in {wait}s...")
+                    time.sleep(wait)
+                else:
+                    ts(f"[RATE LIMIT] Sheets API quota exceeded after {max_retries} attempts. Giving up.")
+                    raise
+            else:
+                raise
+    return False
+
+
 def update_sheet_with_retake_data(worksheet, parsed_data, target_sheet_name,
                                    header_indices, all_reg_numbers_in_sheet,
                                    course_name_map, all_sheet_values,
@@ -318,7 +362,7 @@ def update_sheet_with_retake_data(worksheet, parsed_data, target_sheet_name,
             ts(f"  {course_code}: {existing_val} unchanged (new: {new_grade})")
 
     if update_requests:
-        worksheet.batch_update(update_requests, value_input_option='USER_ENTERED')
+        _batch_update_with_retry(worksheet, update_requests, value_input_option='USER_ENTERED')
         ts(f"✅ Updated {updated_count} course grade(s) in '{target_sheet_name}'.")
 
         if credit_hours:
@@ -779,7 +823,7 @@ def setup_course_columns(worksheet, courses, next_col_index, has_retake_column):
         course_name_cells.append({'range': f'{retake_col_letter}1', 'values': [['Retake Courses']]})
         course_code_cells.append({'range': f'{retake_col_letter}2', 'values': [['']]})
 
-    worksheet.batch_update(course_name_cells + course_code_cells)
+    _batch_update_with_retry(worksheet, course_name_cells + course_code_cells)
     ts(f"✅ Created {len(courses)} course columns.")
 
 
@@ -813,7 +857,17 @@ def set_column_widths(worksheet, course_count, next_col_index):
             "fields": "pixelSize"
         }
     })
-    worksheet.spreadsheet.batch_update({"requests": requests})
+    for attempt in range(1, 6):
+        try:
+            worksheet.spreadsheet.batch_update({"requests": requests})
+            break
+        except APIError as e:
+            if ('429' in str(e) or 'RATE_LIMIT_EXCEEDED' in str(e)) and attempt < 5:
+                wait = 2 ** attempt
+                ts(f"[RATE LIMIT] Sheets API quota hit. Retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                raise
     ts(f"✅ Set column widths: 150px for {course_count} courses, 300px for retake.")
 
 
@@ -857,7 +911,7 @@ def update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_r
                 update_requests.append({'range': f'{col_letter}{target_row_num}', 'values': [[course['grade']]]})
 
     if update_requests:
-        worksheet.batch_update(update_requests, value_input_option='USER_ENTERED')
+        _batch_update_with_retry(worksheet, update_requests, value_input_option='USER_ENTERED')
         ts(f"✅ Successfully wrote {len(update_requests)} new value(s) to the Google Sheet.")
     else:
         ts("No empty cells to update. Data is already present.")
@@ -888,7 +942,7 @@ def format_gpa_cgpa_columns(worksheet):
             })
 
         if update_payload:
-            worksheet.batch_update(update_payload, value_input_option='USER_ENTERED')
+            _batch_update_with_retry(worksheet, update_payload, value_input_option='USER_ENTERED')
             ts("Step 1/2: Successfully converted any existing text values to numbers.")
 
         worksheet.format(ranges_to_process, {
@@ -1547,6 +1601,18 @@ def run():
     FORM_DATA["exam"] = str(CONFIG.get("exam", ""))
     START_REGI = CONFIG["start_regi"]  # pyright: ignore[reportConstantRedefinition]
     END_REGI = CONFIG["end_regi"]  # pyright: ignore[reportConstantRedefinition]
+
+    # Auto-select worksheet from exam title (unless user explicitly set --worksheet)
+    if not RETAKE_MODE and not args.worksheet and CONFIG.get("exam"):
+        try:
+            creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
+            client = gspread.authorize(creds)
+            spreadsheet = client.open_by_url(GOOGLE_SHEET_URL)
+            resolved_ws, resolved_name = resolve_worksheet_from_exam(CONFIG["exam"], spreadsheet)
+            if resolved_ws and resolved_name:
+                WORKSHEET_NAME = resolved_name  # pyright: ignore[reportConstantRedefinition]
+        except Exception:
+            pass  # Fall back to config worksheet_name
 
     if args.list_exams:
         if RETAKE_MODE:
