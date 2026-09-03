@@ -344,6 +344,9 @@ def update_sheet_with_retake_data(worksheet, parsed_data, target_sheet_name,
         if col_index is None:
             ts(f"  Course '{course_code}' not found in sheet columns. Skipping.")
             continue
+        if col_index >= len(existing_row_data):
+            ts(f"  Course '{course_code}' column index out of range in row. Skipping.")
+            continue
 
         existing_val = existing_row_data[col_index]
         existing_point = grade_to_point(existing_val) if existing_val else 0.0
@@ -898,7 +901,7 @@ def update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_r
         update_requests.append({'range': f'F{target_row_num}', 'values': [[parsed_data.get('CGPA')]]})
 
     scraped_fail_subs = parsed_data.get('Fail Subs')
-    if scraped_fail_subs and not existing_row_data[retake_col_index]:
+    if scraped_fail_subs and retake_col_index < len(existing_row_data) and not existing_row_data[retake_col_index]:
         retake_col_letter = gspread.utils.rowcol_to_a1(1, retake_col_index + 1).rstrip('1')  # pyright: ignore[reportAttributeAccessIssue]
         update_requests.append({'range': f'{retake_col_letter}{target_row_num}', 'values': [[scraped_fail_subs]]})
 
@@ -906,7 +909,7 @@ def update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_r
         sanitized_name = sanitize_text(course['name'])
         if sanitized_name in course_name_map:
             col_index = course_name_map[sanitized_name]
-            if not existing_row_data[col_index]:
+            if col_index < len(existing_row_data) and not existing_row_data[col_index]:
                 col_letter = gspread.utils.rowcol_to_a1(1, col_index + 1).rstrip('1')  # pyright: ignore[reportAttributeAccessIssue]
                 update_requests.append({'range': f'{col_letter}{target_row_num}', 'values': [[course['grade']]]})
 
