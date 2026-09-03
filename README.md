@@ -92,6 +92,9 @@ Three files, zero duplication:
 | `--status` | Print progress status and exit |
 | `--log` | Save output to `data/logs/` |
 | `--reg N` | Scrape a single reg number |
+| `--exam` | Set exam in memory (auto-selects PerCourse sheet, doesn't touch config.json) |
+| `--retake` | Enable retake/improvement scraping mode |
+| `--retake-exam` | Set retake exam in memory (for multi-terminal retake scraping) |
 | `--sheet-url` | Override Google Sheet URL |
 | `--worksheet` | Override worksheet name |
 | `--program` | Override program name |
@@ -106,13 +109,14 @@ All settings live in `data/config.json` (local) or `Google Drive/ResultScraperDa
 | Field | Default | Description |
 |---|---|---|
 | `google_sheet_url` | `""` | Google Spreadsheet URL (prompted on first run) |
-| `worksheet_name` | `""` | Worksheet/tab name (prompted on first run) |
+| `worksheet_name` | `""` | Worksheet/tab name (prompted on first run; auto-derived from exam title when using `--exam`) |
 | `program` | `"B.Sc. in Computer Science and Engineering"` | Program in portal dropdown |
 | `session` | `"2021-2022"` | Academic session in portal dropdown |
 | `exam` | `""` | Exam name (auto-selected if empty) |
+| `retake_exam` | `""` | Retake/improvement exam name (set via `--retake-exam` or `--list-exams --retake`) |
 | `start_regi` | `710` | Starting reg number |
 | `end_regi` | `813` | Ending reg number |
-| `request_delay` | `1` | Seconds between requests |
+| `request_delay` | `4` | Seconds between requests (keep at 4 for concurrent scraping) |
 
 Progress is scoped by `(sheet_url, worksheet, exam)` — switching configs automatically starts fresh.
 
@@ -131,3 +135,54 @@ Course columns and `Retake Courses` are auto-created from the first scraped resu
 ```bash
 .venv/bin/python -m pytest tests/ -v
 ```
+
+## Retake/Improvement Mode
+
+Use `--retake` to scrape retake/improvement exam results (only course grades, no GPA/CGPA on portal).
+
+```bash
+# Interactively select a retake exam
+.venv/bin/python result_scrapper.py --retake --list-exams --force
+
+# Run retake scraping
+.venv/bin/python result_scrapper.py --retake
+
+# Dry run
+.venv/bin/python result_scrapper.py --retake --dry-run
+```
+
+- Auto-maps exam title to PerCourse sheet (e.g. "1st year 2nd Semester" → `PerCourse_L1T2`)
+- Only writes if new grade is **better** than existing, or cell is empty
+- GPA recalculated after updates using credit hours from `data/cse_credit_hours.json`
+- Sanity check: uses `max(existing_gpa, formula_gpa)` — never lowers GPA
+- Course codes with spaces (e.g. "MATH 1204") normalized to hyphens ("MATH-1204")
+
+## Multi-Terminal Concurrent Scraping
+
+Run multiple terminals for different semesters using `--exam` or `--retake-exam`. These set the exam **in memory only** (config untouched) and each terminal gets its own per-exam progress file.
+
+```bash
+# Terminal 1
+.venv/bin/python result_scrapper.py --exam "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2022" --start-regi 710 --end-regi 813
+
+# Terminal 2
+.venv/bin/python result_scrapper.py --exam "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2023" --start-regi 710 --end-regi 813
+
+# Terminal 3 — retake
+.venv/bin/python result_scrapper.py --retake --retake-exam "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)" --start-regi 710 --end-regi 813
+```
+
+- Worksheet auto-derived from exam title — no need to set `--worksheet`
+- Progress files scoped per-exam: `data/progress_{hash}.json` (normal), `data/progress_retake_{hash}.json` (retake)
+- Keep `request_delay: 4` to stay under Google's 60 writes/min quota
+
+## Data Files
+
+| File | Description |
+|---|---|
+| `data/config.json` | Runtime configuration (gitignored) |
+| `data/progress_{hash}.json` | Per-exam scrape progress — auto-resumed on restart (gitignored) |
+| `data/cse_credit_hours.json` | Credit hours for all CSE courses — used for GPA recalculation |
+| `data/exam_catalog.json` | All CSE exams, sessions, and metadata scraped from portal — used for `--exam`/`--retake-exam` |
+| `credentials.json` | GCP service account key — **never committed** (gitignored) |
+| `.env` | Persistent config overrides (gitignored) |

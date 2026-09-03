@@ -50,12 +50,14 @@ All runtime data lives in `data/` directory (gitignored). Config is stored in `d
 ```json
 {
   "google_sheet_url": "https://docs.google.com/spreadsheets/d/.../edit",
-  "worksheet_name": "Copy of PerCourse_L3T1",
+  "worksheet_name": "PerCourse_L3T1",
   "program": "B.Sc. in Computer Science and Engineering",
   "session": "2021-2022",
   "exam": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2023 (New Curriculum)",
+  "retake_exam": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Improvement Examination of 2023 (Retake/Improvement)",
   "start_regi": 710,
-  "end_regi": 813
+  "end_regi": 813,
+  "request_delay": 4
 }
 ```
 
@@ -65,10 +67,14 @@ All runtime data lives in `data/` directory (gitignored). Config is stored in `d
 - Persistent values also saved to `.env` (gitignored) so they survive config.json deletion
 - CLI flags (`--sheet-url`, `--worksheet`, `--program`, `--session`, `--start-regi`, `--end-regi`) override config
 - `exam` can be empty string to skip exam selection (will fail at runtime)
+- `worksheet_name` is auto-derived from exam title when `--exam` is used (e.g. "1st year 2nd Semester" → `PerCourse_L1T2`), unless `--worksheet` is explicitly passed
 
 ## Resume (`data/progress.json`)
 
-Scraped reg numbers saved to `data/progress.json`, scoped by `(sheet_url, worksheet, exam)` hash. On restart, those students are skipped. Delete `data/progress.json` to re-scrape from scratch.
+Scraped reg numbers saved to per-exam progress files, scoped by `(sheet_url, worksheet, exam)` hash. On restart, those students are skipped.
+- Normal mode: `data/progress_{hash}.json`
+- Retake mode: `data/progress_retake_{hash}.json`
+- Delete the relevant progress file to re-scrape that exam from scratch.
 
 ## Retake/Improvement Mode
 
@@ -92,8 +98,28 @@ python result_scrapper.py --retake --dry-run
 - The exam title is parsed to determine which PerCourse sheet to update (e.g., "1st year 2nd Semester" → `PerCourse_L1T2`)
 - Only updates cells where the new grade is **better** than the existing grade, or the cell is empty
 - Does NOT touch GPA/CGPA columns (they're formulas from Overview sheet)
-- Uses separate progress file `data/progress_retake.json` — independent of normal scraping progress
 - Course codes with spaces (e.g., "MATH 1204") are normalized to hyphens ("MATH-1204") for matching
+- GPA is recalculated after retake updates using credit hours from `data/cse_credit_hours.json`
+- Sanity check: retake mode uses `max(existing_gpa, formula_gpa)` — never lowers GPA
+
+## Multi-Terminal Concurrent Scraping
+
+Use `--exam` or `--retake-exam` flags to run multiple terminals concurrently for different semesters. These flags set the exam **in memory only** (no disk write to config.json) and each terminal gets its own per-exam progress file.
+
+```bash
+# Terminal 1 — normal semester
+python result_scrapper.py --exam "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2022" --start-regi 710 --end-regi 813
+
+# Terminal 2 — different semester (same command, different exam)
+python result_scrapper.py --exam "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2023" --start-regi 710 --end-regi 813
+
+# Terminal 3 — retake scraping
+python result_scrapper.py --retake --retake-exam "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)" --start-regi 710 --end-regi 813
+```
+
+- `worksheet_name` is auto-derived from exam title (e.g. "1st year 2nd Semester" → `PerCourse_L1T2`)
+- Progress files are per-exam: `data/progress_{hash}.json` (normal), `data/progress_retake_{hash}.json` (retake)
+- Keep `request_delay: 4` to stay under Google's 60 writes/min quota across concurrent terminals
 
 ## Gotchas
 
