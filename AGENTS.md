@@ -146,7 +146,7 @@ python result_scrapper.py --retake --retake-exam L1T2R-2024 --start-regi 710 --e
 ## Gotchas
 
 - `credentials.json` is in `.gitignore` and is **not committed** — it exists only on disk. It contains a GCP service account private key. Do not leak or commit copies.
-- `config.json`, `progress.json`, and `.env` are in `.gitignore` via `data/` — they won't be committed.
+- `config.json`, `progress_*.json`, and `.env` are in `.gitignore` via `data/` — they won't be committed.
 - The Google Sheet only needs these fixed headers in row 1: `Sl.`, `Student's Name`, `Student's ID`, `Reg. No.`, `GPA`, `CGPA`. Course columns and `Retake Courses` are auto-created from the first scraped result.
 - Exam selection uses text normalization (HTML entity decoding, whitespace collapsing) to handle portal encoding quirks.
 - The script retries failed requests up to 3 times with exponential backoff (2s, 4s, 8s).

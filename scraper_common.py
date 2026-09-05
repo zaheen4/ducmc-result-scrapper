@@ -1945,7 +1945,8 @@ def interactive_menu():
         else:
             main(dry_run=dry_run, reg_num=start if start == end else None)
     else:
-        if not _prompt_confirm(f"Run all {len(section)} {'retake' if retake else 'normal'} targets?", default=False):
+        total_targets = sum(len(v) if isinstance(v, list) else 1 for v in section.values())
+        if not _prompt_confirm(f"Run all {total_targets} {'retake' if retake else 'normal'} exams?", default=False):
             ts("Cancelled.")
             return
         run_batch(retake=retake, dry_run=dry_run, fresh=fresh)
