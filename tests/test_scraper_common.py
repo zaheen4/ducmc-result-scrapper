@@ -1378,7 +1378,7 @@ class TestInteractiveMenu:
             patch('scraper_common._auto_resolve_worksheet', return_value=None),
         )
 
-    def test_single_normal_runs_main(self):
+    def test_single_normal_runs_main(self, capsys):
         patches = self._base_patches()
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
              patch('scraper_common._prompt_list', side_effect=["Normal semester", "Single semester", "Normal L1T2 Examination of 2022"]), \
@@ -1393,28 +1393,52 @@ class TestInteractiveMenu:
         assert exam == "Normal L1T2 Examination of 2022"
         assert sheet_url == "http://x"
         assert program == "p"
+        assert "already scraped" in capsys.readouterr().out
 
     def test_single_retake_dry_run(self):
         patches = self._base_patches()
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
              patch('scraper_common._prompt_list', side_effect=["Retake / improvement", "Single semester", "Retake L1T2 Examination of 2023"]), \
              patch('scraper_common._prompt_input', return_value="810"), \
-             patch('scraper_common._prompt_confirm', return_value=True), \
+             patch('scraper_common._prompt_confirm', return_value=True) as mock_confirm, \
              patch('scraper_common.scrape_retake_results') as mock_retake:
             interactive_menu()
             retake_exam = scraper_common.CONFIG["retake_exam"]
         mock_retake.assert_called_once_with(dry_run=True, reg_num=810)
         assert retake_exam == "Retake L1T2 Examination of 2023"
+        assert mock_confirm.call_count == 1  # fresh prompt skipped on dry run
+
+    def test_single_fresh_clears_progress(self):
+        patches = self._base_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Single semester", "Normal L1T2 Examination of 2022"]), \
+             patch('scraper_common._prompt_input', return_value="710-813"), \
+             patch('scraper_common._prompt_confirm', side_effect=[False, True]), \
+             patch('scraper_common.save_progress') as mock_save, \
+             patch('scraper_common.main') as mock_main:
+            interactive_menu()
+        mock_save.assert_called_once_with([])
+        mock_main.assert_called_once_with(dry_run=False, reg_num=None)
 
     def test_everything_runs_batch(self):
         patches = self._base_patches()
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
              patch('scraper_common._prompt_list', side_effect=["Normal semester", "Everything pending (targets.json)"]), \
              patch('scraper_common._prompt_input', return_value="710-813"), \
-             patch('scraper_common._prompt_confirm', side_effect=[False, True]), \
+             patch('scraper_common._prompt_confirm', side_effect=[False, False, True]), \
              patch('scraper_common.run_batch') as mock_batch:
             interactive_menu()
-        mock_batch.assert_called_once_with(retake=False, dry_run=False)
+        mock_batch.assert_called_once_with(retake=False, dry_run=False, fresh=False)
+
+    def test_everything_fresh_passthrough(self):
+        patches = self._base_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Everything pending (targets.json)"]), \
+             patch('scraper_common._prompt_input', return_value="710-813"), \
+             patch('scraper_common._prompt_confirm', side_effect=[False, True, True]), \
+             patch('scraper_common.run_batch') as mock_batch:
+            interactive_menu()
+        mock_batch.assert_called_once_with(retake=False, dry_run=False, fresh=True)
 
     def test_show_commands_prints_one_liners(self, capsys):
         with patch('scraper_common._prompt_list', side_effect=["Normal semester", "Show multi-terminal commands"]), \

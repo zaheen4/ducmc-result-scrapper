@@ -49,7 +49,9 @@ Three files, zero duplication:
 
 ## Usage
 
-Just run it — no arguments opens a guided menu (mode → exams → reg range → run).
+Just run it — no arguments opens a guided menu (mode → exams → reg range → dry-run → fresh).
+Single-semester runs show resume status ("84 of 104 already scraped") and offer a
+fresh restart; batch mode passes the same choice through to every exam.
 The menu's `Settings` item edits the saved config (sheet, session, range, delay);
 first run triggers the same setup automatically.
 

@@ -1810,6 +1810,14 @@ def _print_parallel_commands(section, retake):
     ts("")
 
 
+def _print_resume_status(retake, start, end):
+    """Shows already-scraped vs remaining counts for the current target."""
+    scraped = _load_retake_progress() if retake else load_progress()
+    total = end - start + 1
+    done = len([r for r in scraped if start <= int(r) <= end])
+    ts(f"  Progress: {done} of {total} already scraped ({total - done} remaining)")
+
+
 def _ensure_sheet_configured():
     """Runs first-run setup if sheet URL or worksheet is missing (exits on cancel)."""
     if not CONFIG.get("google_sheet_url") or not CONFIG.get("worksheet_name"):
@@ -1903,6 +1911,11 @@ def interactive_menu():
 
     _ensure_sheet_configured()
 
+    single_title = None
+    if scope.startswith("Single"):
+        single_title = _menu_pick_single(section, retake)
+        _set_target_context(single_title, retake)
+
     while True:
         try:
             start, end = _parse_range(
@@ -1911,16 +1924,25 @@ def interactive_menu():
             break
         except ValueError as e:
             ts(f"[ERROR] {e}")
+    if single_title is not None:
+        _print_resume_status(retake, start, end)
     dry_run = _prompt_confirm("Dry run (no sheet writes)?", default=False)
+    fresh = False
+    if not dry_run:
+        fresh = _prompt_confirm("Ignore saved progress and start fresh?", default=False)
 
     CONFIG["start_regi"] = start
     CONFIG["end_regi"] = end
     START_REGI = start  # pyright: ignore[reportConstantRedefinition]
     END_REGI = end  # pyright: ignore[reportConstantRedefinition]
 
-    if scope.startswith("Single"):
-        title = _menu_pick_single(section, retake)
-        _set_target_context(title, retake)
+    if single_title is not None:
+        if fresh:
+            if retake:
+                _save_retake_progress([])
+            else:
+                save_progress([])
+            ts("[INFO] Progress cleared — starting fresh.")
         if retake:
             scrape_retake_results(dry_run=dry_run, reg_num=start if start == end else None)
         else:
@@ -1929,7 +1951,7 @@ def interactive_menu():
         if not _prompt_confirm(f"Run all {len(section)} {'retake' if retake else 'normal'} targets?", default=False):
             ts("Cancelled.")
             return
-        run_batch(retake=retake, dry_run=dry_run)
+        run_batch(retake=retake, dry_run=dry_run, fresh=fresh)
 
 
 # ===================================================================

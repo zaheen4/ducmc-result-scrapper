@@ -27,6 +27,7 @@ python result_scrapper.py
 
 # Menu scopes: Single semester | Everything pending | multi-terminal commands
 # | Settings (edits saved config: sheet, session, range, delay)
+# Single runs show resume status and offer a fresh restart (dry-run skips it)
 
 # Short codes skip the menu: L1T2 normal, L1T2R retake, L1T2R-2024 one year
 python result_scrapper.py --exam L3T2
