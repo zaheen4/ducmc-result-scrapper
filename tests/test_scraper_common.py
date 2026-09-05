@@ -1529,3 +1529,39 @@ class TestMenuSettings:
             synced_url = scraper_common.GOOGLE_SHEET_URL
         mock_setup.assert_called_once_with(config)
         assert synced_url == "http://x"
+
+
+class TestPromptKwargs:
+    """Guard against InquirerPy version drift: every question shape we use
+    must construct against the installed version (cf. NumberPrompt 'float')."""
+
+    def test_used_question_types_construct(self):
+        from InquirerPy.resolver import question_mapping
+        question_mapping["input"](message="m", default="1")
+        question_mapping["list"](message="m", choices=["a", "b"])
+        question_mapping["confirm"](message="m", default=False)
+        question_mapping["fuzzy"](message="m", choices=["a", "b"])
+
+    def test_setup_asks_numbers_as_input(self):
+        import sys
+        import types
+        fake = types.ModuleType("InquirerPy")
+        captured = {}
+
+        def fake_prompt(questions):
+            captured["types"] = [q["type"] for q in questions]
+            return {"google_sheet_url": "http://s", "worksheet_name": "ws",
+                    "program": "p", "session": "s",
+                    "start_regi": "710", "end_regi": "813", "request_delay": "4"}
+
+        fake.prompt = fake_prompt
+        config = {}
+        with patch.dict(sys.modules, {"InquirerPy": fake}), \
+             patch('scraper_common.USE_INQUIRERPY', True), \
+             patch('scraper_common.save_config'), \
+             patch('scraper_common.save_env'):
+            first_run_setup(config)
+        assert "number" not in captured["types"]
+        assert config["start_regi"] == 710
+        assert config["end_regi"] == 813
+        assert config["request_delay"] == 4

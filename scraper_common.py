@@ -777,25 +777,22 @@ def first_run_setup(config):
                 "default": env.get("SESSION") or config.get("session", DEFAULTS["session"]),
             },
             {
-                "type": "number",
+                "type": "input",
                 "name": "start_regi",
                 "message": "Start regi number:",
-                "default": config.get("start_regi", 710),
-                "float": False,
+                "default": str(config.get("start_regi", 710)),
             },
             {
-                "type": "number",
+                "type": "input",
                 "name": "end_regi",
                 "message": "End regi number:",
-                "default": config.get("end_regi", 813),
-                "float": False,
+                "default": str(config.get("end_regi", 813)),
             },
             {
-                "type": "number",
+                "type": "input",
                 "name": "request_delay",
                 "message": "Seconds between requests (4+ for concurrent runs):",
-                "default": config.get("request_delay", 1),
-                "float": False,
+                "default": str(config.get("request_delay", 1)),
             },
         ]
         answers = inq_prompt(questions)
@@ -2007,6 +2004,8 @@ def run():
             interactive_menu()
         except (KeyboardInterrupt, EOFError):
             ts("\nCancelled.")
+        except Exception as e:
+            ts(f"\n[ERROR] Menu failed: {e}")
         return
 
     RETAKE_MODE = args.retake  # pyright: ignore[reportConstantRedefinition]
