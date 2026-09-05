@@ -1833,7 +1833,7 @@ def _menu_pick_single(section, retake):
 
 def _sync_globals_from_config():
     """Copies CONFIG into module globals (sheet URL, worksheet, form data, range)."""
-    global GOOGLE_SHEET_URL, WORKSHEET_NAME, START_REGI, END_REGI
+    global GOOGLE_SHEET_URL, WORKSHEET_NAME, START_REGI, END_REGI, REQUEST_DELAY
     GOOGLE_SHEET_URL = str(CONFIG.get("google_sheet_url", ""))  # pyright: ignore[reportConstantRedefinition]
     WORKSHEET_NAME = str(CONFIG.get("worksheet_name", ""))  # pyright: ignore[reportConstantRedefinition]
     FORM_DATA["program"] = str(CONFIG.get("program", ""))
@@ -1841,6 +1841,10 @@ def _sync_globals_from_config():
     FORM_DATA["exam"] = str(CONFIG.get("exam", ""))
     START_REGI = int(CONFIG.get("start_regi", START_REGI))  # pyright: ignore[reportConstantRedefinition]
     END_REGI = int(CONFIG.get("end_regi", END_REGI))  # pyright: ignore[reportConstantRedefinition]
+    try:
+        REQUEST_DELAY = int(CONFIG.get("request_delay", REQUEST_DELAY))  # pyright: ignore[reportConstantRedefinition]
+    except (TypeError, ValueError):
+        ts(f"[WARN] Invalid request_delay {CONFIG.get('request_delay')!r} — keeping {REQUEST_DELAY}s.")
 
 
 def interactive_menu():

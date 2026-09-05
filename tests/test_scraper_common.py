@@ -53,6 +53,7 @@ from scraper_common import (  # noqa: E402
     _parse_range,
     _short_label,
     _menu_pick_single,
+    _sync_globals_from_config,
 )
 
 
@@ -1426,3 +1427,36 @@ class TestInteractiveMenu:
              patch('scraper_common.load_targets', return_value=self.TARGETS):
             title = _menu_pick_single(self.TARGETS["normal"], retake=False)
         assert title == "Normal L1T2 Examination of 2022"
+
+
+class TestSyncGlobals:
+    def _sync_with(self, config):
+        with patch('scraper_common.CONFIG', config), \
+             patch('scraper_common.FORM_DATA', {"program": "", "session": "", "exam": ""}):
+            _sync_globals_from_config()
+
+    def test_request_delay_honored(self):
+        with patch('scraper_common.REQUEST_DELAY', 1):
+            self._sync_with({"request_delay": 4})
+            assert scraper_common.REQUEST_DELAY == 4
+
+    def test_request_delay_garbage_keeps_default(self):
+        with patch('scraper_common.REQUEST_DELAY', 1):
+            self._sync_with({"request_delay": "soon"})
+            assert scraper_common.REQUEST_DELAY == 1
+
+    def test_sheet_and_range_synced(self):
+        with patch('scraper_common.FORM_DATA', {"program": "", "session": "", "exam": ""}):
+            with patch('scraper_common.CONFIG', {
+                "google_sheet_url": "http://sheet", "worksheet_name": "ws",
+                "program": "prog", "session": "sess", "exam": "ex",
+                "start_regi": 700, "end_regi": 800, "request_delay": 2,
+            }):
+                _sync_globals_from_config()
+                assert scraper_common.GOOGLE_SHEET_URL == "http://sheet"
+                assert scraper_common.WORKSHEET_NAME == "ws"
+                assert scraper_common.START_REGI == 700
+                assert scraper_common.END_REGI == 800
+                assert scraper_common.REQUEST_DELAY == 2
+            assert scraper_common.FORM_DATA["program"] == "prog"
+            assert scraper_common.FORM_DATA["session"] == "sess"
