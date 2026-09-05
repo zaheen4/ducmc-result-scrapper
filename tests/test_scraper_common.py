@@ -1384,8 +1384,12 @@ class TestInteractiveMenu:
              patch('scraper_common.main') as mock_main:
             interactive_menu()
             exam = scraper_common.CONFIG["exam"]
+            sheet_url = scraper_common.GOOGLE_SHEET_URL
+            program = scraper_common.FORM_DATA["program"]
         mock_main.assert_called_once_with(dry_run=False, reg_num=None)
         assert exam == "Normal L1T2 Examination of 2022"
+        assert sheet_url == "http://x"
+        assert program == "p"
 
     def test_single_retake_dry_run(self):
         patches = self._base_patches()

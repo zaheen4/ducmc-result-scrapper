@@ -1831,9 +1831,22 @@ def _menu_pick_single(section, retake):
             ts(f"[ERROR] {e}")
 
 
+def _sync_globals_from_config():
+    """Copies CONFIG into module globals (sheet URL, worksheet, form data, range)."""
+    global GOOGLE_SHEET_URL, WORKSHEET_NAME, START_REGI, END_REGI
+    GOOGLE_SHEET_URL = str(CONFIG.get("google_sheet_url", ""))  # pyright: ignore[reportConstantRedefinition]
+    WORKSHEET_NAME = str(CONFIG.get("worksheet_name", ""))  # pyright: ignore[reportConstantRedefinition]
+    FORM_DATA["program"] = str(CONFIG.get("program", ""))
+    FORM_DATA["session"] = str(CONFIG.get("session", ""))
+    FORM_DATA["exam"] = str(CONFIG.get("exam", ""))
+    START_REGI = int(CONFIG.get("start_regi", START_REGI))  # pyright: ignore[reportConstantRedefinition]
+    END_REGI = int(CONFIG.get("end_regi", END_REGI))  # pyright: ignore[reportConstantRedefinition]
+
+
 def interactive_menu():
     """Zero-flag guided flow: mode -> scope -> exam -> range -> run."""
     global START_REGI, END_REGI
+    _sync_globals_from_config()
     ts("--- DUCMC Result Scraper ---")
     ts(f"  Sheet:     {CONFIG.get('google_sheet_url') or '(not set)'}")
     ts(f"  Session:   {CONFIG.get('session')}")
@@ -1970,11 +1983,7 @@ def run():
             ts(f"[ERROR] {e}")
             sys.exit(1)
 
-    GOOGLE_SHEET_URL = CONFIG["google_sheet_url"]  # pyright: ignore[reportConstantRedefinition]
-    WORKSHEET_NAME = CONFIG["worksheet_name"]  # pyright: ignore[reportConstantRedefinition]
-    FORM_DATA["program"] = str(CONFIG["program"])
-    FORM_DATA["session"] = str(CONFIG["session"])
-    FORM_DATA["exam"] = str(CONFIG.get("exam", ""))
+    _sync_globals_from_config()
     START_REGI = CONFIG["start_regi"]  # pyright: ignore[reportConstantRedefinition]
     END_REGI = CONFIG["end_regi"]  # pyright: ignore[reportConstantRedefinition]
 
