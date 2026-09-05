@@ -42,6 +42,9 @@ from scraper_common import (  # noqa: E402
     ts,
     recalculate_semester_gpa,
     _load_credit_hours,
+    wait_for_exam_options,
+    main,
+    scrape_retake_results,
 )
 
 
@@ -577,9 +580,11 @@ class TestScrapeStudentResult:
     def _mock_select_for_exam(self):
         """Return a patched Select that matches EXAM_TEXT."""
         mock_select = MagicMock()
+        mock_placeholder = MagicMock()
+        mock_placeholder.text = "Select your Exam Name"
         mock_option = MagicMock()
         mock_option.text = self.EXAM_TEXT
-        mock_select.options = [mock_option]
+        mock_select.options = [mock_placeholder, mock_option]
         return mock_select
 
     @patch('scraper_common.time.sleep')
@@ -628,9 +633,11 @@ class TestScrapeStudentResult:
     def test_exam_not_found(self, MockSelect, mock_sleep):
         driver = MagicMock()
         mock_select = MagicMock()
+        mock_placeholder = MagicMock()
+        mock_placeholder.text = "Select your Exam Name"
         mock_option = MagicMock()
         mock_option.text = "Some Other Exam"
-        mock_select.options = [mock_option]
+        mock_select.options = [mock_placeholder, mock_option]
         MockSelect.return_value = mock_select
         result = scrape_student_result(driver, '123')
         assert result is None
@@ -641,14 +648,17 @@ class TestSelectExam:
     @patch('scraper_common.FORM_DATA', {'program': 'prog', 'session': 'sess', 'exam': ''})
     @patch('scraper_common.Select')
     def test_no_exams_found(self, MockSelect, mock_sleep):
+        from selenium.common.exceptions import TimeoutException
         mock_driver = MagicMock()
         mock_wait = MagicMock()
         mock_select = MagicMock()
         mock_select.options = []
         MockSelect.return_value = mock_select
         with patch('scraper_common.initialize_webdriver', return_value=mock_driver), \
-             patch('scraper_common.WebDriverWait', return_value=mock_wait):
-            select_exam(force=True)
+             patch('scraper_common.WebDriverWait', return_value=mock_wait), \
+             patch('scraper_common.time.time', side_effect=[0.0, 999.0]):
+            with pytest.raises(TimeoutException):
+                select_exam(force=True)
         mock_driver.get.assert_called_once()
 
     @patch('scraper_common.time.sleep')
@@ -691,9 +701,11 @@ class TestSelectExam:
         mock_driver = MagicMock()
         mock_wait = MagicMock()
         mock_select = MagicMock()
+        placeholder = MagicMock()
+        placeholder.text = "Select your Exam Name"
         opt = MagicMock()
         opt.text = "New Exam"
-        mock_select.options = [opt]
+        mock_select.options = [placeholder, opt]
 
         mock_save = MagicMock()
         mock_load = MagicMock(return_value={"exam": "Old Exam"})
@@ -705,7 +717,7 @@ class TestSelectExam:
              patch('scraper_common.time.sleep'), \
              patch('scraper_common.load_config', mock_load), \
              patch('scraper_common.save_config', mock_save), \
-             patch('builtins.input', return_value="1"):
+             patch('builtins.input', return_value="2"):
             select_exam(force=True)
         scraper_common.USE_INQUIRERPY = True
 
@@ -1127,3 +1139,102 @@ class TestExamCatalog:
         for exam_id in (1888, 1878, 1851, 1776):
             name = by_id[exam_id]['name']
             assert any(kw in name.lower() for kw in retake_keywords)
+
+
+class TestWaitForExamOptions:
+    def _mock_select(self, texts):
+        mock_select = MagicMock()
+        opts = []
+        for t in texts:
+            o = MagicMock()
+            o.text = t
+            opts.append(o)
+        mock_select.options = opts
+        return mock_select
+
+    def test_returns_immediately_when_populated(self):
+        driver = MagicMock()
+        full = self._mock_select(["Select your Exam Name", "Exam A 2024"])
+        with patch('scraper_common.Select', return_value=full):
+            result = wait_for_exam_options(driver, timeout=10)
+        assert result is full
+        driver.find_element.assert_called_once()
+
+    def test_polls_until_populated(self):
+        driver = MagicMock()
+        empty = self._mock_select(["Select your Exam Name"])
+        full = self._mock_select(["Select your Exam Name", "Exam A 2024"])
+        with patch('scraper_common.Select', side_effect=[empty, empty, full]), \
+             patch('scraper_common.time.sleep') as mock_sleep, \
+             patch('scraper_common.time.time', side_effect=[0.0, 1.0, 2.0]):
+            result = wait_for_exam_options(driver, timeout=10)
+        assert result is full
+        assert mock_sleep.call_count == 2
+
+    def test_raises_on_timeout(self):
+        from selenium.common.exceptions import TimeoutException
+        driver = MagicMock()
+        empty = self._mock_select(["Select your Exam Name"])
+        with patch('scraper_common.Select', return_value=empty), \
+             patch('scraper_common.time.sleep'), \
+             patch('scraper_common.time.time', side_effect=[0.0, 999.0]):
+            with pytest.raises(TimeoutException):
+                wait_for_exam_options(driver, timeout=10)
+
+
+class TestDryRunProgress:
+    """Dry runs must never create, modify, or clear progress files."""
+
+    def _make_ws(self):
+        ws = MagicMock()
+        ws.get_all_values.return_value = [
+            ["Sl.", "Student's Name", "Student's ID", "Reg. No.", "GPA", "CGPA"],
+            [""] * 6,
+            ["1", "Test", "CS 001", "710", "", ""],
+        ]
+        return ws
+
+    def _make_parsed(self):
+        return {
+            'Name': 'Test', 'Roll': 'CS 001', 'Reg': '710',
+            'GPA': '3.50', 'CGPA': '3.50', 'Fail Subs': '',
+            'courses': [{'name': 'X', 'code': 'CSE-1101', 'grade': 'A-'}],
+        }
+
+    def test_normal_dry_run_writes_no_progress(self, tmp_path):
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.START_REGI', 710), \
+             patch('scraper_common.END_REGI', 710), \
+             patch('scraper_common.REQUEST_DELAY', 0), \
+             patch('scraper_common.get_worksheet', return_value=self._make_ws()), \
+             patch('scraper_common.initialize_webdriver', return_value=MagicMock()), \
+             patch('scraper_common.scrape_student_result', return_value=self._make_parsed()), \
+             patch('scraper_common.format_gpa_cgpa_columns'):
+            main(dry_run=True)
+        assert os.listdir(str(tmp_path)) == []
+
+    def test_normal_real_run_writes_progress(self, tmp_path):
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.START_REGI', 710), \
+             patch('scraper_common.END_REGI', 710), \
+             patch('scraper_common.REQUEST_DELAY', 0), \
+             patch('scraper_common.get_worksheet', return_value=self._make_ws()), \
+             patch('scraper_common.initialize_webdriver', return_value=MagicMock()), \
+             patch('scraper_common.scrape_student_result', return_value=self._make_parsed()), \
+             patch('scraper_common.update_sheet_with_student_data'), \
+             patch('scraper_common.format_gpa_cgpa_columns'):
+            main(dry_run=False)
+        assert os.listdir(str(tmp_path)) != []
+
+    def test_retake_dry_run_writes_no_progress(self, tmp_path):
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.CONFIG', {'retake_exam': 'Retake Exam'}), \
+             patch('scraper_common.FORM_DATA', {'program': 'p', 'session': 's', 'exam': 'e'}), \
+             patch('scraper_common.START_REGI', 710), \
+             patch('scraper_common.END_REGI', 710), \
+             patch('scraper_common.REQUEST_DELAY', 0), \
+             patch('scraper_common.get_spreadsheet', return_value=MagicMock()), \
+             patch('scraper_common.initialize_webdriver', return_value=MagicMock()), \
+             patch('scraper_common.scrape_student_result', return_value=self._make_parsed()):
+            scrape_retake_results(dry_run=True)
+        assert os.listdir(str(tmp_path)) == []

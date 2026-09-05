@@ -401,8 +401,7 @@ def select_retake_exam(force=False):
         Select(wait.until(EC.presence_of_element_located((By.ID, 'pro_id')))).select_by_visible_text(FORM_DATA['program'])
         Select(wait.until(EC.presence_of_element_located((By.ID, 'sess_id')))).select_by_visible_text(FORM_DATA['session'])
 
-        exam_select = Select(wait.until(EC.presence_of_element_located((By.ID, 'exam_id'))))
-        time.sleep(1)
+        exam_select = wait_for_exam_options(driver)
 
         all_exams = [normalize_text(opt.text) for opt in exam_select.options if opt.text.strip()]
         retake_keywords = ['improvement', 'retake']
@@ -669,8 +668,7 @@ def select_exam(force=False):
         Select(wait.until(EC.presence_of_element_located((By.ID, 'pro_id')))).select_by_visible_text(FORM_DATA['program'])
         Select(wait.until(EC.presence_of_element_located((By.ID, 'sess_id')))).select_by_visible_text(FORM_DATA['session'])
 
-        exam_select = Select(wait.until(EC.presence_of_element_located((By.ID, 'exam_id'))))
-        time.sleep(1)
+        exam_select = wait_for_exam_options(driver)
 
         exam_options = [normalize_text(opt.text) for opt in exam_select.options if opt.text.strip()]
 
@@ -1046,6 +1044,25 @@ def initialize_webdriver():
     return driver
 
 
+def wait_for_exam_options(driver, timeout=10):
+    """Waits for the portal's exam dropdown to populate after program selection.
+
+    The exam list loads asynchronously (ajax/get_program_by_exam.php), so
+    reading #exam_id immediately often yields only the placeholder option.
+    Polls until at least one real exam option exists, then returns a Select.
+    Raises TimeoutException on timeout — callers' retry logic handles it.
+    """
+    deadline = time.time() + timeout
+    while True:
+        exam_select = Select(driver.find_element(By.ID, 'exam_id'))
+        real_options = [opt for opt in exam_select.options if opt.text.strip()]
+        if len(real_options) > 1:  # placeholder + at least one exam
+            return exam_select
+        if time.time() >= deadline:
+            raise TimeoutException("Timed out waiting for exam dropdown to populate.")
+        time.sleep(0.5)
+
+
 def scrape_student_result(driver, reg_num):
     """Scrapes the result for a single student, with retries."""
     for attempt in range(1, RETRY_ATTEMPTS + 1):
@@ -1058,7 +1075,7 @@ def scrape_student_result(driver, reg_num):
             Select(wait.until(EC.presence_of_element_located((By.ID, 'sess_id')))).select_by_visible_text(FORM_DATA['session'])
 
             normalized_exam = normalize_text(FORM_DATA['exam'])
-            exam_select = Select(wait.until(EC.presence_of_element_located((By.ID, 'exam_id'))))
+            exam_select = wait_for_exam_options(driver)
             matched = False
             for option in exam_select.options:
                 if normalize_text(option.text) == normalized_exam:
@@ -1215,7 +1232,7 @@ def scrape_retake_results(dry_run=False, reg_num=None):
                     Select(wait.until(EC.presence_of_element_located((By.ID, 'sess_id')))).select_by_visible_text(FORM_DATA['session'])
 
                     normalized_exam = normalize_text(FORM_DATA['exam'])
-                    exam_select = Select(wait.until(EC.presence_of_element_located((By.ID, 'exam_id'))))
+                    exam_select = wait_for_exam_options(driver)
                     matched = False
                     for option in exam_select.options:
                         if normalize_text(option.text) == normalized_exam:
@@ -1274,7 +1291,8 @@ def scrape_retake_results(dry_run=False, reg_num=None):
                             ts(f"Could not open worksheet '{target_sheet_name}'. Skipping.")
                             stats["failed"] += 1
                             scraped_list.append(reg_str)
-                            _save_retake_progress(scraped_list)
+                            if not dry_run:
+                                _save_retake_progress(scraped_list)
                             if REQUEST_DELAY > 0 and regi_num < end_regi:
                                 time.sleep(REQUEST_DELAY)
                             continue
@@ -1297,12 +1315,14 @@ def scrape_retake_results(dry_run=False, reg_num=None):
                                 stats["unchanged"] += 1
 
                 scraped_list.append(reg_str)
-                _save_retake_progress(scraped_list)
+                if not dry_run:
+                    _save_retake_progress(scraped_list)
             elif parsed_data and not parsed_data.get('courses'):
                 ts(f"No retake courses found for Reg {reg_str}. Student may not have taken this retake.")
                 stats["unchanged"] += 1
                 scraped_list.append(reg_str)
-                _save_retake_progress(scraped_list)
+                if not dry_run:
+                    _save_retake_progress(scraped_list)
             else:
                 stats["failed"] += 1
 
@@ -1317,7 +1337,9 @@ def scrape_retake_results(dry_run=False, reg_num=None):
         driver.quit()
         ts("WebDriver closed.")
 
-    if not interrupted and stats['failed'] == 0:
+    if dry_run:
+        ts("[INFO] Dry run — retake progress file left untouched.")
+    elif not interrupted and stats['failed'] == 0:
         _save_retake_progress([])
         ts("[INFO] Retake progress file cleared — all students processed successfully.")
     elif stats['failed'] > 0:
@@ -1397,7 +1419,8 @@ def main(dry_run=False, reg_num=None):
                     update_sheet_with_student_data(worksheet, parsed_data, header_indices, all_reg_numbers_in_sheet, course_name_map, all_sheet_values, header_indices['retake'])
 
                 scraped_list.append(reg_str)
-                save_progress(scraped_list)
+                if not dry_run:
+                    save_progress(scraped_list)
                 stats["scraped"] += 1
             else:
                 stats["failed"] += 1
@@ -1414,7 +1437,9 @@ def main(dry_run=False, reg_num=None):
     if not dry_run:
         format_gpa_cgpa_columns(worksheet)
 
-    if not interrupted and stats['failed'] == 0:
+    if dry_run:
+        ts("[INFO] Dry run — progress file left untouched.")
+    elif not interrupted and stats['failed'] == 0:
         save_progress([])
         ts("[INFO] Progress file cleared — all students scraped successfully.")
     elif stats['failed'] > 0:
@@ -1497,8 +1522,7 @@ def validate_config():
 
         if FORM_DATA['exam']:
             try:
-                exam_select = Select(wait.until(EC.presence_of_element_located((By.ID, 'exam_id'))))
-                time.sleep(1)
+                exam_select = wait_for_exam_options(driver)
                 normalized_exam = normalize_text(FORM_DATA['exam'])
                 matched = any(normalize_text(opt.text) == normalized_exam for opt in exam_select.options if opt.text.strip())
                 if matched:
@@ -1654,7 +1678,9 @@ def run():
             ts(f"Logging to {log_filename}")
 
         if args.fresh:
-            if RETAKE_MODE:
+            if args.dry_run:
+                ts("[INFO] Dry run — ignoring --fresh, progress file left untouched.")
+            elif RETAKE_MODE:
                 _save_retake_progress([])
                 ts("[INFO] Retake progress cleared — starting fresh.")
             else:
