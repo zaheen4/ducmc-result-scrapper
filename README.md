@@ -142,7 +142,9 @@ Basic flags (see `--help`). Everything else lives under "advanced options".
 Anything missing from `targets.json` falls back to an `exam_catalog.json` search
 (same disambiguation rules). `data/targets.json` holds this batch's exams:
 6 normals (`L1T1`–`L3T2`) plus every yearly retake per slot — edit it when
-sharing with juniors or when new exams publish.
+sharing with juniors or when new exams publish. The menu's **Update exam data**
+does both jobs: it refreshes `exam_catalog.json` from the portal (plain HTTPS,
+no browser) and offers each new exam for confirmation into `targets.json`.
 
 ## Config
 

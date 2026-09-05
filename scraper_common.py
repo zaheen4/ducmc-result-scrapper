@@ -12,6 +12,7 @@ import json
 import html as html_module
 import re
 import hashlib
+import urllib.request
 from datetime import datetime
 from typing import Any, TextIO
 
@@ -462,6 +463,151 @@ def run_batch(retake=False, dry_run=False, reg_num=None, fresh=False, log=False)
         if LOG_FILE:
             LOG_FILE.close()
     ts("\n--- Batch complete ---")
+
+
+CSE_PROGRAM_ID = 14
+PORTAL_EXAM_LIST_URL = (
+    "https://ducmc.du.ac.bd/ajax/get_program_by_exam.php?program_id=14&pedata=99"
+)
+RETAKE_KEYWORDS = ('improvement', 'retake')
+
+
+def fetch_portal_exams(url=PORTAL_EXAM_LIST_URL, timeout=20):
+    """Fetches the live (id, name) exam list from the portal.
+
+    Plain HTTPS GET of the portal's own exam-list endpoint — no browser needed.
+    Returns None on network failure.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            html_content = response.read().decode('utf-8', errors='replace')
+    except Exception as e:
+        ts(f"[ERROR] Could not reach portal exam list: {e}")
+        return None
+    soup = BeautifulSoup(html_content, 'html.parser')
+    exams = []
+    for opt in soup.find_all('option'):
+        try:
+            exam_id = int((opt.get('value') or '').strip())
+        except ValueError:
+            continue
+        name = normalize_text(opt.get_text())
+        if exam_id and name:
+            exams.append((exam_id, name))
+    return exams
+
+
+def _derive_catalog_entry(exam_id, name):
+    """Builds a catalog entry for a new exam (metadata derived from the title)."""
+    lowered = name.lower()
+    is_retake = any(kw in lowered for kw in RETAKE_KEYWORDS)
+    entry = {"id": exam_id, "name": name,
+             "type": "retake" if is_retake else "normal",
+             "year": 0, "term": 0}
+    sheet = map_exam_to_sheet(name)
+    if sheet:
+        match = re.fullmatch(r'PerCourse_L(\d)T(\d)', sheet)
+        if match:
+            entry["year"], entry["term"] = int(match.group(1)), int(match.group(2))
+    exam_year = _exam_year_of(name)
+    if exam_year:
+        entry["exam_year"] = int(exam_year)
+    if 'special' in lowered:
+        entry["special"] = True
+    if 'old syllabus' in lowered or 'old curriculum' in lowered:
+        entry["curriculum"] = "old"
+    elif 'new curriculum' in lowered:
+        entry["curriculum"] = "new"
+    return entry
+
+
+def refresh_exam_catalog():
+    """Merges the live portal exam list into exam_catalog.json.
+
+    New exams are prepended (newest first) with derived metadata; vanished
+    exams are kept locally and reported. Returns (new_entries, removed_ids).
+    """
+    assert DATA_DIR is not None
+    live = fetch_portal_exams()
+    if live is None:
+        return None
+    catalog_path = os.path.join(DATA_DIR, 'exam_catalog.json')
+    with open(catalog_path, 'r') as f:
+        catalog = json.load(f)
+    known_ids = {e['id'] for e in catalog.get('exams', [])}
+    live_ids = {exam_id for exam_id, _ in live}
+    new_entries = [_derive_catalog_entry(i, n) for i, n in live if i not in known_ids]
+    removed_ids = sorted(known_ids - live_ids)
+    for entry in sorted(new_entries, key=lambda e: e['id'], reverse=True):
+        catalog['exams'].insert(0, entry)
+    with open(catalog_path, 'w') as f:
+        json.dump(catalog, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+    ts(f"Catalog: {len(new_entries)} new exam(s).")
+    for entry in sorted(new_entries, key=lambda e: e['id'], reverse=True):
+        ts(f"  + [{entry['id']}] {entry['name']}")
+    for exam_id in removed_ids:
+        ts(f"  - [{exam_id}] kept locally, missing from portal.")
+    return new_entries, removed_ids
+
+
+def save_targets(targets):
+    """Writes the targets dict back to targets.json."""
+    assert DATA_DIR is not None
+    with open(os.path.join(DATA_DIR, 'targets.json'), 'w') as f:
+        json.dump(targets, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+
+
+def _suggestable(entry, targets_session):
+    """Whether a new catalog entry is worth offering for this batch's targets."""
+    lowered = entry['name'].lower()
+    if 'special' in lowered:
+        return False
+    if 'old syllabus' in lowered or 'old curriculum' in lowered:
+        return False
+    session_mark = re.search(r'\((\d{4}-\d{4})\)', entry['name'])
+    if session_mark and targets_session and session_mark.group(1) != targets_session:
+        return False
+    return True
+
+
+def update_exam_data():
+    """Menu entry: refresh catalog from portal, then offer targets additions."""
+    result = refresh_exam_catalog()
+    if result is None:
+        return
+    new_entries, _ = result
+    if not new_entries:
+        ts("Catalog is up to date.")
+        return
+    targets = load_targets()
+    session = targets.get('session', '')
+    changed = False
+    for entry in sorted(new_entries, key=lambda e: e['id']):
+        if not _suggestable(entry, session):
+            ts(f"  Skipping (not this batch): [{entry['id']}] {entry['name']}")
+            continue
+        slot = f"L{entry['year']}T{entry['term']}"
+        retake = entry['type'] == 'retake'
+        code = slot + ('R' if retake else '')
+        section = targets.setdefault('retake' if retake else 'normal', {})
+        existing = section.get(slot)
+        existing_list = existing if isinstance(existing, list) else ([existing] if existing else [])
+        if entry['name'] in existing_list:
+            continue
+        if existing and not retake:
+            ts(f"  Slot {slot} already has an exam — edit targets.json manually to replace it.")
+            continue
+        if _prompt_confirm(f"Add to targets as {code} — {_short_label(entry['name'])}?", default=False):
+            if retake:
+                section[slot] = sorted(existing_list + [entry['name']], key=_exam_year_of)
+            else:
+                section[slot] = entry['name']
+            changed = True
+    if changed:
+        save_targets(targets)
+        ts("✅ targets.json updated.")
 
 
 def _batch_update_with_retry(worksheet, requests, value_input_option='RAW', max_retries=5):
@@ -1880,6 +2026,7 @@ def interactive_menu():
         "Everything pending (targets.json)",
         "Show multi-terminal commands",
         "Settings (sheet, session, range, delay)",
+        "Update exam data (portal → catalog/targets)",
     ])
 
     targets = load_targets()
@@ -1900,6 +2047,10 @@ def interactive_menu():
             return
         _sync_globals_from_config()
         ts("✅ Settings saved.")
+        return
+
+    if scope.startswith("Update"):
+        update_exam_data()
         return
 
     if not section:

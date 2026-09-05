@@ -56,6 +56,11 @@ from scraper_common import (  # noqa: E402
     _sync_globals_from_config,
     _ensure_sheet_configured,
     first_run_setup,
+    fetch_portal_exams,
+    refresh_exam_catalog,
+    update_exam_data,
+    _derive_catalog_entry,
+    _suggestable,
 )
 
 
@@ -1565,3 +1570,121 @@ class TestPromptKwargs:
         assert config["start_regi"] == 710
         assert config["end_regi"] == 813
         assert config["request_delay"] == 4
+
+
+class TestFetchPortalExams:
+    def _fake_response(self, body):
+        resp = MagicMock()
+        resp.read.return_value = body.encode('utf-8')
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    def test_parses_options(self):
+        body = ('<option value="">Select</option>'
+                '<option value="1889">B.Sc. X 3rd year 2nd Semester Examination of 2024</option>'
+                '<option value="abc">Bad ID</option>')
+        with patch('scraper_common.urllib.request.urlopen', return_value=self._fake_response(body)):
+            exams = fetch_portal_exams()
+        assert exams == [(1889, "B.Sc. X 3rd year 2nd Semester Examination of 2024")]
+
+    def test_network_failure_returns_none(self):
+        with patch('scraper_common.urllib.request.urlopen', side_effect=Exception("down")):
+            assert fetch_portal_exams() is None
+
+
+class TestDeriveCatalogEntry:
+    def test_normal(self):
+        entry = _derive_catalog_entry(
+            1889, "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2024")
+        assert entry == {"id": 1889,
+                         "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2024",
+                         "type": "normal", "year": 3, "term": 2, "exam_year": 2024}
+
+    def test_retake_special_old(self):
+        entry = _derive_catalog_entry(
+            1878, "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Special Improvement Examination of 2023 (Special Improvement - Old Syllabus)")
+        assert entry["type"] == "retake"
+        assert (entry["year"], entry["term"]) == (2, 2)
+        assert entry["exam_year"] == 2023
+        assert entry["special"] is True
+        assert entry["curriculum"] == "old"
+
+
+class TestRefreshCatalog:
+    def _write_catalog(self, path, exams):
+        with open(os.path.join(str(path), 'exam_catalog.json'), 'w') as f:
+            json.dump({"program": "p", "exams": exams}, f, indent=2)
+
+    def test_adds_new_keeps_old(self, tmp_path):
+        old = {"id": 100, "name": "Old Exam 2020", "type": "normal",
+               "year": 1, "term": 1, "exam_year": 2020, "session": "kept"}
+        self._write_catalog(tmp_path, [old])
+        live = [(100, "Old Exam 2020"),
+                (200, "B.Sc. in Computer Science and Engineering 1st year 1st Semester Examination of 2022")]
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.fetch_portal_exams', return_value=live):
+            added, removed = refresh_exam_catalog()
+        assert [e["id"] for e in added] == [200]
+        assert removed == []
+        catalog = json.load(open(os.path.join(str(tmp_path), 'exam_catalog.json')))
+        assert [e["id"] for e in catalog["exams"]] == [200, 100]  # newest first
+        assert catalog["exams"][1] == old  # untouched, custom fields kept
+
+    def test_reports_removed(self, tmp_path):
+        old = {"id": 100, "name": "Gone Exam", "type": "normal",
+               "year": 1, "term": 1, "exam_year": 2020}
+        self._write_catalog(tmp_path, [old])
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.fetch_portal_exams', return_value=[]):
+            added, removed = refresh_exam_catalog()
+        assert added == [] and removed == [100]
+        catalog = json.load(open(os.path.join(str(tmp_path), 'exam_catalog.json')))
+        assert [e["id"] for e in catalog["exams"]] == [100]  # kept locally
+
+    def test_fetch_failure_returns_none(self, tmp_path):
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.fetch_portal_exams', return_value=None):
+            assert refresh_exam_catalog() is None
+
+
+class TestSuggestable:
+    def test_filters(self):
+        assert _suggestable({"name": "B.Sc. X 2nd year 2nd Semester Special Improvement Examination of 2023 (Special Improvement)"}, "2021-2022") is False
+        assert _suggestable({"name": "B.Sc. X 4th year 1st Semester Examination of 2024 (2020-2021)"}, "2021-2022") is False
+        assert _suggestable({"name": "B.Sc. X 2nd year 2nd Semester Retake/Improvement Examination of 2022 (Retake/Improvement - Old Curriculum)"}, "2021-2022") is False
+        assert _suggestable({"name": "B.Sc. X 3rd year 2nd Semester Examination of 2024"}, "2021-2022") is True
+
+
+class TestUpdateExamData:
+    def test_accept_and_reject(self, tmp_path):
+        targets = {"session": "2021-2022",
+                   "normal": {},
+                   "retake": {"L1T2": ["B.Sc. X 1st year 2nd Semester Improvement Examination of 2022 (Retake/Improvement)"]}}
+        with open(os.path.join(str(tmp_path), 'targets.json'), 'w') as f:
+            json.dump(targets, f)
+        new_entries = [
+            {"id": 1, "name": "B.Sc. X 5th year 9th Semester Examination of 2025",
+             "type": "normal", "year": 1, "term": 1, "exam_year": 2025},
+            {"id": 2, "name": "B.Sc. X 1st year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)",
+             "type": "retake", "year": 1, "term": 2, "exam_year": 2023},
+        ]
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.refresh_exam_catalog', return_value=(new_entries, [])), \
+             patch('scraper_common._prompt_confirm', side_effect=[True, False]):
+            update_exam_data()
+        updated = json.load(open(os.path.join(str(tmp_path), 'targets.json')))
+        assert updated["normal"]["L1T1"] == "B.Sc. X 5th year 9th Semester Examination of 2025"
+        assert updated["retake"]["L1T2"] == ["B.Sc. X 1st year 2nd Semester Improvement Examination of 2022 (Retake/Improvement)"]
+
+    def test_no_new_exams(self, tmp_path):
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.refresh_exam_catalog', return_value=([], [])):
+            update_exam_data()  # must not crash without targets.json present
+
+    def test_fetch_failure_aborts(self, tmp_path):
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.refresh_exam_catalog', return_value=None), \
+             patch('scraper_common._prompt_confirm') as mock_confirm:
+            update_exam_data()
+        mock_confirm.assert_not_called()
