@@ -1744,6 +1744,151 @@ def validate_config():
 
 
 # ===================================================================
+# Interactive Menu (zero-flag flow, local only)
+# ===================================================================
+def _short_label(title):
+    """Strips the program prefix for compact menu labels."""
+    return re.sub(r'^B\.Sc\. in Computer Science and Engineering\s+', '', normalize_text(title))
+
+
+def _prompt_list(message, choices):
+    from InquirerPy import prompt as _prompt
+    answers = _prompt([{"type": "list", "name": "choice", "message": message, "choices": choices}])
+    return answers["choice"]
+
+
+def _prompt_confirm(message, default=False):
+    from InquirerPy import prompt as _prompt
+    answers = _prompt([{"type": "confirm", "name": "ok", "message": message, "default": default}])
+    return bool(answers["ok"])
+
+
+def _prompt_input(message, default=""):
+    from InquirerPy import prompt as _prompt
+    answers = _prompt([{"type": "input", "name": "value", "message": message, "default": str(default)}])
+    return answers["value"].strip()
+
+
+def _parse_range(text, default_start, default_end):
+    """Parses '710-813' or '810' into (start, end); raises ValueError."""
+    text = (text or "").strip()
+    match = re.fullmatch(r'(\d+)\s*-\s*(\d+)', text)
+    if match:
+        start, end = int(match.group(1)), int(match.group(2))
+        if start > end:
+            raise ValueError(f"Start {start} is after end {end}.")
+        return start, end
+    if text.isdigit():
+        return int(text), int(text)
+    if not text:
+        return default_start, default_end
+    raise ValueError(f"Could not parse range '{text}' (e.g. 710-813).")
+
+
+def _print_parallel_commands(section, retake):
+    """Prints copy-paste one-liners for multi-terminal concurrent scraping."""
+    ts("\nPaste one per terminal:\n")
+    for slot, value in section.items():
+        titles = value if isinstance(value, list) else [value]
+        for title in titles:
+            code = slot + ('R' if retake else '')
+            if len(titles) > 1:
+                code += f"-{_exam_year_of(title)}"
+            flag = "--retake --retake-exam" if retake else "--exam"
+            ts(f"  {sys.executable} result_scrapper.py {flag} {code}")
+    ts("")
+
+
+def _ensure_sheet_configured():
+    """Runs first-run setup if sheet URL or worksheet is missing (exits on cancel)."""
+    if not CONFIG.get("google_sheet_url") or not CONFIG.get("worksheet_name"):
+        try:
+            first_run_setup(CONFIG)
+        except (KeyboardInterrupt, Exception):
+            ts("\nSetup cancelled.")
+            sys.exit(1)
+
+
+def _menu_pick_single(section, retake):
+    """Returns one exam title: slot picker (+ free-form code fallback)."""
+    choices = []
+    for slot, value in section.items():
+        titles = value if isinstance(value, list) else [value]
+        for title in titles:
+            code = slot + ('R' if retake else '')
+            if len(titles) > 1:
+                code += f"-{_exam_year_of(title)}"
+            choices.append({"name": f"{code} — {_short_label(title)}", "value": title})
+    choices.append({"name": "Other exam code… (e.g. L4T1, L1T2R-2022)", "value": None})
+    picked = _prompt_list("Which semester?", choices)
+    if picked is not None:
+        return picked
+    while True:
+        code = _prompt_input("Exam code")
+        try:
+            return resolve_exam_code(code, retake=retake)
+        except ExamCodeError as e:
+            ts(f"[ERROR] {e}")
+
+
+def interactive_menu():
+    """Zero-flag guided flow: mode -> scope -> exam -> range -> run."""
+    global START_REGI, END_REGI
+    ts("--- DUCMC Result Scraper ---")
+    ts(f"  Sheet:     {CONFIG.get('google_sheet_url') or '(not set)'}")
+    ts(f"  Session:   {CONFIG.get('session')}")
+    ts(f"  Reg range: {CONFIG.get('start_regi')}–{CONFIG.get('end_regi')}\n")
+
+    mode = _prompt_list("What to scrape?", ["Normal semester", "Retake / improvement"])
+    retake = mode.startswith("Retake")
+    scope = _prompt_list("Which exams?", [
+        "Single semester",
+        "Everything pending (targets.json)",
+        "Show multi-terminal commands",
+    ])
+
+    targets = load_targets()
+    section = targets.get('retake' if retake else 'normal', {})
+    if not section:
+        ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
+        return
+
+    if scope.startswith("Show"):
+        _print_parallel_commands(section, retake)
+        return
+
+    _ensure_sheet_configured()
+
+    while True:
+        try:
+            start, end = _parse_range(
+                _prompt_input("Reg range", f"{CONFIG.get('start_regi')}-{CONFIG.get('end_regi')}"),
+                CONFIG.get('start_regi'), CONFIG.get('end_regi'))
+            break
+        except ValueError as e:
+            ts(f"[ERROR] {e}")
+    dry_run = _prompt_confirm("Dry run (no sheet writes)?", default=False)
+
+    CONFIG["start_regi"] = start
+    CONFIG["end_regi"] = end
+    START_REGI = start  # pyright: ignore[reportConstantRedefinition]
+    END_REGI = end  # pyright: ignore[reportConstantRedefinition]
+
+    if scope.startswith("Single"):
+        title = _menu_pick_single(section, retake)
+        _set_target_context(title, retake)
+        if retake:
+            scrape_retake_results(dry_run=dry_run, reg_num=start if start == end else None)
+        else:
+            main(dry_run=dry_run, reg_num=start if start == end else None)
+    else:
+        if not _prompt_confirm(f"Run all {len(section)} {'retake' if retake else 'normal'} targets?", default=False):
+            ts("Cancelled.")
+            return
+        run_batch(retake=retake, dry_run=dry_run)
+
+
+# ===================================================================
 # Entry Point
 # ===================================================================
 def run():
@@ -1774,6 +1919,18 @@ def run():
     parser.add_argument("--show-config", action="store_true", help="Print active config and exit")
     parser.add_argument("--status", action="store_true", help="Print progress status and exit")
     args = parser.parse_args()
+
+    if len(sys.argv) == 1 and USE_INQUIRERPY:
+        try:
+            from InquirerPy import prompt  # noqa: F401
+        except ImportError:
+            ts("[ERROR] InquirerPy not installed — use CLI flags (see --help).")
+            return
+        try:
+            interactive_menu()
+        except (KeyboardInterrupt, EOFError):
+            ts("\nCancelled.")
+        return
 
     RETAKE_MODE = args.retake  # pyright: ignore[reportConstantRedefinition]
 
@@ -1831,12 +1988,7 @@ def run():
         run_batch(retake=RETAKE_MODE, dry_run=args.dry_run, reg_num=args.reg,
                   fresh=args.fresh, log=args.log)
     else:
-        if not CONFIG.get("google_sheet_url") or not CONFIG.get("worksheet_name"):
-            try:
-                first_run_setup(CONFIG)
-            except (KeyboardInterrupt, Exception):
-                ts("\nSetup cancelled.")
-                sys.exit(1)
+        _ensure_sheet_configured()
 
         if RETAKE_MODE:
             if not CONFIG.get("retake_exam"):

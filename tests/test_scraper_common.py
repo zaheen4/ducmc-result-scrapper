@@ -49,6 +49,10 @@ from scraper_common import (  # noqa: E402
     maybe_resolve_exam_arg,
     run_batch,
     ExamCodeError,
+    interactive_menu,
+    _parse_range,
+    _short_label,
+    _menu_pick_single,
 )
 
 
@@ -1329,3 +1333,92 @@ class TestRunBatch:
              patch('scraper_common.main') as mock_main:
             run_batch(retake=False)
         mock_main.assert_not_called()
+
+
+class TestMenuHelpers:
+    def test_short_label(self):
+        assert _short_label("B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2024") == \
+            "3rd year 2nd Semester Examination of 2024"
+
+    def test_parse_range_pair(self):
+        assert _parse_range("710-813", 1, 2) == (710, 813)
+
+    def test_parse_range_single(self):
+        assert _parse_range("810", 1, 2) == (810, 810)
+
+    def test_parse_range_empty_uses_defaults(self):
+        assert _parse_range("", 710, 813) == (710, 813)
+
+    def test_parse_range_invalid(self):
+        with pytest.raises(ValueError):
+            _parse_range("abc", 710, 813)
+        with pytest.raises(ValueError):
+            _parse_range("813-710", 710, 813)
+
+
+class TestInteractiveMenu:
+    TARGETS = {
+        "normal": {"L1T2": "Normal L1T2 Examination of 2022"},
+        "retake": {"L1T2": ["Retake L1T2 Examination of 2022", "Retake L1T2 Examination of 2023"]},
+    }
+
+    def _base_patches(self):
+        return (
+            patch('scraper_common.CONFIG', {
+                "google_sheet_url": "http://x", "worksheet_name": "ws",
+                "program": "p", "session": "s", "start_regi": 710, "end_regi": 813,
+            }),
+            patch('scraper_common.FORM_DATA', {"program": "p", "session": "s", "exam": ""}),
+            patch('scraper_common.START_REGI', 710),
+            patch('scraper_common.END_REGI', 813),
+            patch('scraper_common.load_targets', return_value=self.TARGETS),
+            patch('scraper_common._auto_resolve_worksheet', return_value=None),
+        )
+
+    def test_single_normal_runs_main(self):
+        patches = self._base_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Single semester", "Normal L1T2 Examination of 2022"]), \
+             patch('scraper_common._prompt_input', return_value="710-813"), \
+             patch('scraper_common._prompt_confirm', return_value=False), \
+             patch('scraper_common.main') as mock_main:
+            interactive_menu()
+            exam = scraper_common.CONFIG["exam"]
+        mock_main.assert_called_once_with(dry_run=False, reg_num=None)
+        assert exam == "Normal L1T2 Examination of 2022"
+
+    def test_single_retake_dry_run(self):
+        patches = self._base_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch('scraper_common._prompt_list', side_effect=["Retake / improvement", "Single semester", "Retake L1T2 Examination of 2023"]), \
+             patch('scraper_common._prompt_input', return_value="810"), \
+             patch('scraper_common._prompt_confirm', return_value=True), \
+             patch('scraper_common.scrape_retake_results') as mock_retake:
+            interactive_menu()
+            retake_exam = scraper_common.CONFIG["retake_exam"]
+        mock_retake.assert_called_once_with(dry_run=True, reg_num=810)
+        assert retake_exam == "Retake L1T2 Examination of 2023"
+
+    def test_everything_runs_batch(self):
+        patches = self._base_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Everything pending (targets.json)"]), \
+             patch('scraper_common._prompt_input', return_value="710-813"), \
+             patch('scraper_common._prompt_confirm', side_effect=[False, True]), \
+             patch('scraper_common.run_batch') as mock_batch:
+            interactive_menu()
+        mock_batch.assert_called_once_with(retake=False, dry_run=False)
+
+    def test_show_commands_prints_one_liners(self, capsys):
+        with patch('scraper_common._prompt_list', side_effect=["Normal semester", "Show multi-terminal commands"]), \
+             patch('scraper_common.load_targets', return_value=self.TARGETS):
+            interactive_menu()
+        out = capsys.readouterr().out
+        assert "--exam L1T2" in out
+
+    def test_freeform_code_fallback(self):
+        with patch('scraper_common._prompt_list', return_value=None), \
+             patch('scraper_common._prompt_input', return_value="L1T2"), \
+             patch('scraper_common.load_targets', return_value=self.TARGETS):
+            title = _menu_pick_single(self.TARGETS["normal"], retake=False)
+        assert title == "Normal L1T2 Examination of 2022"
