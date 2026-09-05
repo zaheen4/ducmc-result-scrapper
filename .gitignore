@@ -4,6 +4,7 @@ credentials.json
 data/
 !data/cse_credit_hours.json
 !data/exam_catalog.json
+!data/targets.json
 __pycache__/
 *.pyc
 .pytest_cache/

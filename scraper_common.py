@@ -292,6 +292,178 @@ def resolve_worksheet_from_exam(exam_title, spreadsheet):
     return None, None
 
 
+EXAM_CODE_RE = re.compile(r'^L([1-4])T([1-2])(R?)(?:-(\d{4}))?$', re.IGNORECASE)
+
+
+class ExamCodeError(ValueError):
+    """Raised when a short exam code (e.g. 'L1T2R') can't resolve to one title."""
+
+
+def load_targets():
+    """Loads the batch targets file (slot codes -> exam titles)."""
+    assert DATA_DIR is not None
+    targets_path = os.path.join(DATA_DIR, 'targets.json')
+    if os.path.exists(targets_path):
+        with open(targets_path, 'r') as f:
+            return json.load(f)
+    return {"session": "", "normal": {}, "retake": {}}
+
+
+def _catalog_exams():
+    """Loads the raw exam list from exam_catalog.json ([] if missing)."""
+    assert DATA_DIR is not None
+    catalog_path = os.path.join(DATA_DIR, 'exam_catalog.json')
+    if os.path.exists(catalog_path):
+        with open(catalog_path, 'r') as f:
+            return json.load(f).get('exams', [])
+    return []
+
+
+def _exam_year_of(title):
+    """Extracts the exam year from a portal exam title ('' if none)."""
+    match = re.search(r'Examination\s+(?:of\s+)?(\d{4})', normalize_text(title))
+    return match.group(1) if match else ''
+
+
+def _slot_titles(targets, slot, want_retake):
+    """Returns the targets.json title list for a slot (may be empty)."""
+    section = (targets or {}).get('retake' if want_retake else 'normal', {})
+    entry = section.get(slot)
+    if isinstance(entry, str):
+        return [entry]
+    if isinstance(entry, list):
+        return list(entry)
+    return []
+
+
+def _catalog_titles(catalog, year, term, want_retake):
+    """Finds catalog exam titles for a level/term/type combination."""
+    return [
+        e['name'] for e in (catalog or [])
+        if str(e.get('year')) == year and str(e.get('term')) == term
+        and (e.get('type') == 'retake') == want_retake
+    ]
+
+
+def resolve_exam_code(code, retake=False, targets=None, catalog=None):
+    """Resolves a short exam code to a full portal exam title.
+
+    Codes: 'L1T2' (normal slot), 'L1T2R' (retake slot), 'L1T2R-2024'
+    (one retake year). Slot codes come from targets.json; anything missing
+    there falls back to an exam_catalog.json search. Raises ExamCodeError
+    with concrete candidates when ambiguous or unknown.
+    """
+    match = EXAM_CODE_RE.match((code or '').strip())
+    if not match:
+        raise ExamCodeError(f"'{code}' is not an exam code (e.g. L1T2, L2T1R, L1T2R-2024).")
+    year, term, r_flag, exam_year = match.groups()
+    slot = f"L{year}T{term}"
+    want_retake = retake or bool(r_flag)
+
+    if targets is None:
+        targets = load_targets()
+    candidates = _slot_titles(targets, slot, want_retake)
+    if not candidates:
+        if catalog is None:
+            catalog = _catalog_exams()
+        candidates = _catalog_titles(catalog, year, term, want_retake)
+    if exam_year:
+        candidates = [t for t in candidates if _exam_year_of(t) == exam_year]
+
+    if len(candidates) == 1:
+        return candidates[0]
+    kind = "retake" if want_retake else "exam"
+    if not candidates:
+        raise ExamCodeError(f"No {kind} found for '{code.strip()}'.")
+    options = ", ".join(f"{slot}{'R' if want_retake else ''}-{_exam_year_of(t) or '?'}" for t in candidates)
+    raise ExamCodeError(f"'{code.strip()}' matches {len(candidates)} exams; be specific: {options}.")
+
+
+def maybe_resolve_exam_arg(value, retake=False):
+    """Resolves a CLI exam argument: short code -> title, else raw title."""
+    if value and EXAM_CODE_RE.match(value.strip()):
+        return resolve_exam_code(value, retake=retake)
+    return value
+
+
+def _auto_resolve_worksheet(exam_title):
+    """Best-effort PerCourse worksheet name from an exam title (None if unknown)."""
+    try:
+        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_url(GOOGLE_SHEET_URL)
+        _, resolved_name = resolve_worksheet_from_exam(exam_title, spreadsheet)
+        return resolved_name
+    except Exception:
+        return None
+
+
+def _setup_log_file():
+    """Opens a timestamped log file (sets LOG_FILE)."""
+    global LOG_FILE
+    assert DATA_DIR is not None
+    log_dir = os.path.join(DATA_DIR, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_filename = os.path.join(log_dir, f"scraper_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log")
+    LOG_FILE = open(log_filename, 'w')  # pyright: ignore[reportConstantRedefinition]
+    ts(f"Logging to {log_filename}")
+
+
+def _set_target_context(title, retake):
+    """Points CONFIG/FORM_DATA at one exam title (in memory) + resolves worksheet."""
+    global WORKSHEET_NAME
+    if retake:
+        CONFIG["retake_exam"] = title
+        FORM_DATA["retake_exam"] = title  # pyright: ignore[reportConstantRedefinition]
+    else:
+        CONFIG["exam"] = title
+        FORM_DATA["exam"] = title
+        resolved = _auto_resolve_worksheet(title)
+        if resolved:
+            WORKSHEET_NAME = resolved  # pyright: ignore[reportConstantRedefinition]
+
+
+def run_batch(retake=False, dry_run=False, reg_num=None, fresh=False, log=False):
+    """Runs every targets.json exam for the mode, sequentially."""
+    global CONFIG
+    targets = load_targets()
+    section = targets.get('retake' if retake else 'normal', {})
+    items = [(slot, t) for slot, v in section.items() for t in (v if isinstance(v, list) else [v])]
+    if not items:
+        ts(f"No {'retake' if retake else 'normal'} targets configured in targets.json.")
+        return
+
+    if not CONFIG.get("google_sheet_url"):
+        try:
+            first_run_setup(CONFIG)
+        except (KeyboardInterrupt, Exception):
+            ts("\nSetup cancelled.")
+            sys.exit(1)
+
+    if log:
+        _setup_log_file()
+
+    ts(f"--- Batch mode: {len(items)} exam(s), {'retake' if retake else 'normal'} ---")
+    try:
+        for slot, title in items:
+            ts(f"\n===== [{slot}] {title} =====")
+            _set_target_context(title, retake)
+            if fresh and not dry_run:
+                if retake:
+                    _save_retake_progress([])
+                else:
+                    save_progress([])
+                ts("[INFO] Progress cleared — starting fresh.")
+            if retake:
+                scrape_retake_results(dry_run=dry_run, reg_num=reg_num)
+            else:
+                main(dry_run=dry_run, reg_num=reg_num)
+    finally:
+        if LOG_FILE:
+            LOG_FILE.close()
+    ts("\n--- Batch complete ---")
+
+
 def _batch_update_with_retry(worksheet, requests, value_input_option='RAW', max_retries=5):
     """Calls worksheet.batch_update() with retry + backoff for 429 rate limits."""
     for attempt in range(1, max_retries + 1):
@@ -1589,8 +1761,9 @@ def run():
     parser.add_argument("--log", action="store_true", help="Save output to a log file")
     parser.add_argument("--reg", type=int, help="Scrape a single reg number")
     parser.add_argument("--retake", action="store_true", help="Retake/improvement mode — update PerCourse sheets with improved grades")
-    parser.add_argument("--retake-exam", type=str, help="Retake exam name (overrides config, skips interactive selection)")
-    parser.add_argument("--exam", type=str, help="Exam name (overrides config, skips interactive selection)")
+    parser.add_argument("--retake-exam", type=str, help="Retake exam code (e.g. L1T2R, L1T2R-2024) or name (overrides config)")
+    parser.add_argument("--exam", type=str, help="Exam code (e.g. L1T2) or name (overrides config, skips interactive selection)")
+    parser.add_argument("--all", action="store_true", help="Scrape every targets.json exam for the mode, sequentially")
     parser.add_argument("--sheet-url", type=str, help="Google Sheet URL (overrides config)")
     parser.add_argument("--worksheet", type=str, help="Worksheet name (overrides config)")
     parser.add_argument("--program", type=str, help="Program name (overrides config)")
@@ -1617,9 +1790,17 @@ def run():
     if args.end_regi is not None:
         CONFIG["end_regi"] = args.end_regi
     if args.retake_exam:
-        CONFIG["retake_exam"] = args.retake_exam
+        try:
+            CONFIG["retake_exam"] = maybe_resolve_exam_arg(args.retake_exam, retake=True)
+        except ExamCodeError as e:
+            ts(f"[ERROR] {e}")
+            sys.exit(1)
     if args.exam:
-        CONFIG["exam"] = args.exam
+        try:
+            CONFIG["exam"] = maybe_resolve_exam_arg(args.exam)
+        except ExamCodeError as e:
+            ts(f"[ERROR] {e}")
+            sys.exit(1)
 
     GOOGLE_SHEET_URL = CONFIG["google_sheet_url"]  # pyright: ignore[reportConstantRedefinition]
     WORKSHEET_NAME = CONFIG["worksheet_name"]  # pyright: ignore[reportConstantRedefinition]
@@ -1631,15 +1812,9 @@ def run():
 
     # Auto-select worksheet from exam title (unless user explicitly set --worksheet)
     if not RETAKE_MODE and not args.worksheet and CONFIG.get("exam"):
-        try:
-            creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
-            client = gspread.authorize(creds)
-            spreadsheet = client.open_by_url(GOOGLE_SHEET_URL)
-            resolved_ws, resolved_name = resolve_worksheet_from_exam(CONFIG["exam"], spreadsheet)
-            if resolved_ws and resolved_name:
-                WORKSHEET_NAME = resolved_name  # pyright: ignore[reportConstantRedefinition]
-        except Exception:
-            pass  # Fall back to config worksheet_name
+        resolved = _auto_resolve_worksheet(CONFIG["exam"])
+        if resolved:
+            WORKSHEET_NAME = resolved  # pyright: ignore[reportConstantRedefinition]
 
     if args.list_exams:
         if RETAKE_MODE:
@@ -1652,6 +1827,9 @@ def run():
         show_config()
     elif args.status:
         show_status()
+    elif args.all:
+        run_batch(retake=RETAKE_MODE, dry_run=args.dry_run, reg_num=args.reg,
+                  fresh=args.fresh, log=args.log)
     else:
         if not CONFIG.get("google_sheet_url") or not CONFIG.get("worksheet_name"):
             try:
@@ -1670,12 +1848,7 @@ def run():
                 CONFIG = load_config()  # pyright: ignore[reportConstantRedefinition]
 
         if args.log:
-            assert DATA_DIR is not None
-            log_dir = os.path.join(DATA_DIR, 'logs')
-            os.makedirs(log_dir, exist_ok=True)
-            log_filename = os.path.join(log_dir, f"scraper_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log")
-            LOG_FILE = open(log_filename, 'w')  # pyright: ignore[reportConstantRedefinition]
-            ts(f"Logging to {log_filename}")
+            _setup_log_file()
 
         if args.fresh:
             if args.dry_run:

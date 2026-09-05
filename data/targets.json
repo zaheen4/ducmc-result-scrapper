@@ -1,0 +1,36 @@
+{
+  "session": "2021-2022",
+  "normal": {
+    "L1T1": "B.Sc. in Computer Science and Engineering 1st year 1st Semester Examination of 2022",
+    "L1T2": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2022",
+    "L2T1": "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2023",
+    "L2T2": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Examination of 2023",
+    "L3T1": "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Examination of 2024",
+    "L3T2": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2024"
+  },
+  "retake": {
+    "L1T1": [
+      "B.Sc. in Computer Science and Engineering 1st year 1st Semester Retake Examination of 2022 (Retake/Improvement)",
+      "B.Sc. in Computer Science and Engineering 1st year 1st Semester Improvement Examination of 2023 (Retake/Improvement)",
+      "B.Sc. in Computer Science and Engineering 1st year 1st Semester Improvement Examination of 2024 (Retake/Improvement)"
+    ],
+    "L1T2": [
+      "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2022 (Retake/Improvement)",
+      "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)",
+      "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2024 (Retake/Improvement)"
+    ],
+    "L2T1": [
+      "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Improvement Examination of 2022 (Retake/Improvement)",
+      "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Improvement Examination of 2023 (Retake/Improvement)",
+      "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Improvement Examination of 2024 (Retake/Improvement)"
+    ],
+    "L2T2": [
+      "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Retake/Improvement Examination of 2022 (Retake/Improvement - New Curriculum)",
+      "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)"
+    ],
+    "L3T1": [
+      "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Improvement Examination of 2023 (Retake/Improvement - New Curriculum)",
+      "B.Sc. in Computer Science and Engineering 3rd year 1st Semester Improvement Examination of 2024 (Retake/Improvement)"
+    ]
+  }
+}

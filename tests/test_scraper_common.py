@@ -45,6 +45,10 @@ from scraper_common import (  # noqa: E402
     wait_for_exam_options,
     main,
     scrape_retake_results,
+    resolve_exam_code,
+    maybe_resolve_exam_arg,
+    run_batch,
+    ExamCodeError,
 )
 
 
@@ -1238,3 +1242,90 @@ class TestDryRunProgress:
              patch('scraper_common.scrape_student_result', return_value=self._make_parsed()):
             scrape_retake_results(dry_run=True)
         assert os.listdir(str(tmp_path)) == []
+
+
+class TestResolveExamCode:
+    TARGETS = {
+        "session": "2021-2022",
+        "normal": {"L1T2": "Normal L1T2 Examination of 2022"},
+        "retake": {"L1T2": ["Retake L1T2 Examination of 2022", "Retake L1T2 Examination of 2023"]},
+    }
+
+    def test_normal_slot(self):
+        assert resolve_exam_code("L1T2", targets=self.TARGETS, catalog=[]) == "Normal L1T2 Examination of 2022"
+
+    def test_case_insensitive(self):
+        assert resolve_exam_code("l1t2", targets=self.TARGETS, catalog=[]) == "Normal L1T2 Examination of 2022"
+
+    def test_retake_year_suffix(self):
+        assert resolve_exam_code("L1T2R-2023", targets=self.TARGETS, catalog=[]) == "Retake L1T2 Examination of 2023"
+
+    def test_bare_retake_slot_ambiguous(self):
+        with pytest.raises(ExamCodeError, match="L1T2R-2022"):
+            resolve_exam_code("L1T2R", targets=self.TARGETS, catalog=[])
+
+    def test_retake_flag_selects_section(self):
+        with pytest.raises(ExamCodeError):
+            resolve_exam_code("L1T2", retake=True, targets=self.TARGETS, catalog=[])
+
+    def test_invalid_code(self):
+        with pytest.raises(ExamCodeError):
+            resolve_exam_code("banana", targets=self.TARGETS, catalog=[])
+
+    def test_unknown_slot_no_catalog(self):
+        with pytest.raises(ExamCodeError, match="No exam found"):
+            resolve_exam_code("L4T2", targets=self.TARGETS, catalog=[])
+
+    def test_catalog_fallback(self):
+        catalog = [
+            {"name": "Cat L4T1 Examination of 2024", "year": 4, "term": 1, "type": "normal"},
+            {"name": "Cat L4T1 Examination of 2022", "year": 4, "term": 1, "type": "normal"},
+        ]
+        assert resolve_exam_code("L4T1-2022", targets=self.TARGETS, catalog=catalog) == "Cat L4T1 Examination of 2022"
+        with pytest.raises(ExamCodeError, match="L4T1-2024"):
+            resolve_exam_code("L4T1", targets=self.TARGETS, catalog=catalog)
+
+    def test_real_targets_file(self):
+        catalog_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'targets.json')
+        with open(catalog_path, 'r') as f:
+            targets = json.load(f)
+        title = resolve_exam_code("L3T2", targets=targets, catalog=[])
+        assert title == "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2024"
+
+    def test_maybe_resolve_passthrough(self):
+        assert maybe_resolve_exam_arg("Some Raw Exam Title") == "Some Raw Exam Title"
+        with patch('scraper_common.load_targets', return_value=self.TARGETS):
+            assert maybe_resolve_exam_arg("L1T2") == "Normal L1T2 Examination of 2022"
+
+
+class TestRunBatch:
+    TARGETS = {
+        "session": "2021-2022",
+        "normal": {"L1T2": "Normal L1T2", "L2T1": "Normal L2T1"},
+        "retake": {"L1T2": ["Retake L1T2 2022", "Retake L1T2 2023"]},
+    }
+
+    def test_normal_batch_calls_main_per_target(self):
+        seen = []
+        with patch('scraper_common.load_targets', return_value=self.TARGETS), \
+             patch('scraper_common.CONFIG', {"google_sheet_url": "http://x"}), \
+             patch('scraper_common.FORM_DATA', {"program": "p", "session": "s", "exam": ""}), \
+             patch('scraper_common._auto_resolve_worksheet', return_value=None), \
+             patch('scraper_common.main', side_effect=lambda **kw: seen.append(dict(scraper_common.CONFIG))) as mock_main:
+            run_batch(retake=False)
+        assert mock_main.call_count == 2
+        assert [c["exam"] for c in seen] == ["Normal L1T2", "Normal L2T1"]
+
+    def test_retake_batch_calls_scrape_per_exam(self):
+        with patch('scraper_common.load_targets', return_value=self.TARGETS), \
+             patch('scraper_common.CONFIG', {"google_sheet_url": "http://x"}), \
+             patch('scraper_common.FORM_DATA', {"program": "p", "session": "s", "exam": ""}), \
+             patch('scraper_common.scrape_retake_results') as mock_retake:
+            run_batch(retake=True)
+        assert mock_retake.call_count == 2
+
+    def test_empty_targets_no_crash(self):
+        with patch('scraper_common.load_targets', return_value={"normal": {}, "retake": {}}), \
+             patch('scraper_common.main') as mock_main:
+            run_batch(retake=False)
+        mock_main.assert_not_called()
