@@ -25,6 +25,9 @@ colab_scrapper.py   ─┘
 # Local — requires Firefox + geckodriver. No args opens the interactive menu.
 python result_scrapper.py
 
+# Menu scopes: Single semester | Everything pending | multi-terminal commands
+# | Settings (edits saved config: sheet, session, range, delay)
+
 # Short codes skip the menu: L1T2 normal, L1T2R retake, L1T2R-2024 one year
 python result_scrapper.py --exam L3T2
 python result_scrapper.py --retake --retake-exam L1T2R-2024
@@ -33,7 +36,8 @@ python result_scrapper.py --retake --retake-exam L1T2R-2024
 python result_scrapper.py --all
 python result_scrapper.py --retake --all
 
-# Colab — upload both .py files, then:
+# Colab — data files + credentials must live in Google Drive/ResultScraperData/
+# (see Result_Scraper_Colab.ipynb), then:
 # %run colab_scrapper.py
 ```
 
@@ -47,7 +51,7 @@ Pinned in `requirements.txt` (source of truth):
 selenium==4.33.0 gspread==6.2.1 beautifulsoup4==4.13.4 InquirerPy==0.3.4
 ```
 
-Plus `python-dotenv==1.1.1` for `.env` persistence, `pytest` for tests.
+Plus `pytest==9.1.1` for tests. (`.env` is hand-parsed — no dotenv dependency.)
 
 (Installed at runtime in Colab; must be pre-installed locally, e.g. in `.venv`.)
 

@@ -790,6 +790,13 @@ def first_run_setup(config):
                 "default": config.get("end_regi", 813),
                 "float": False,
             },
+            {
+                "type": "number",
+                "name": "request_delay",
+                "message": "Seconds between requests (4+ for concurrent runs):",
+                "default": config.get("request_delay", 1),
+                "float": False,
+            },
         ]
         answers = inq_prompt(questions)
         config["google_sheet_url"] = str(answers["google_sheet_url"])
@@ -798,6 +805,7 @@ def first_run_setup(config):
         config["session"] = str(answers["session"])
         config["start_regi"] = int(str(answers["start_regi"]))
         config["end_regi"] = int(str(answers["end_regi"]))
+        config["request_delay"] = int(str(answers["request_delay"]))
     else:
         def _input(prompt_text, default):
             hint = f" [{default}]" if default else ""
@@ -810,6 +818,7 @@ def first_run_setup(config):
         config["session"] = _input("Session (e.g. 2021-2022)", env.get("SESSION") or config.get("session", DEFAULTS["session"]))
         config["start_regi"] = int(_input("Start regi number", config.get("start_regi", 710)))
         config["end_regi"] = int(_input("End regi number", config.get("end_regi", 813)))
+        config["request_delay"] = int(_input("Seconds between requests (4+ for concurrent runs)", config.get("request_delay", 1)))
 
     save_config(config)
 
@@ -1637,6 +1646,8 @@ def show_config():
     ts(f"  Program:         {FORM_DATA['program']}")
     ts(f"  Session:         {FORM_DATA['session']}")
     ts(f"  Exam:            {FORM_DATA['exam'] or '(not set — will auto-select)'}")
+    if RETAKE_MODE:
+        ts(f"  Retake exam:     {FORM_DATA.get('retake_exam') or CONFIG.get('retake_exam') or '(not set)'}")
     ts(f"  Reg range:       {START_REGI} – {END_REGI} ({END_REGI - START_REGI + 1} students)")
     ts(f"  Request delay:   {REQUEST_DELAY}s")
     ts(f"  Credentials:     {CREDENTIALS_FILE}")
@@ -1807,6 +1818,7 @@ def _ensure_sheet_configured():
         except (KeyboardInterrupt, Exception):
             ts("\nSetup cancelled.")
             sys.exit(1)
+        _sync_globals_from_config()
 
 
 def _menu_pick_single(section, retake):
@@ -1862,16 +1874,31 @@ def interactive_menu():
         "Single semester",
         "Everything pending (targets.json)",
         "Show multi-terminal commands",
+        "Settings (sheet, session, range, delay)",
     ])
 
     targets = load_targets()
     section = targets.get('retake' if retake else 'normal', {})
-    if not section:
-        ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
-        return
 
     if scope.startswith("Show"):
+        if not section:
+            ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
+            return
         _print_parallel_commands(section, retake)
+        return
+
+    if scope.startswith("Settings"):
+        try:
+            first_run_setup(CONFIG)
+        except (KeyboardInterrupt, EOFError):
+            ts("\nCancelled.")
+            return
+        _sync_globals_from_config()
+        ts("✅ Settings saved.")
+        return
+
+    if not section:
+        ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
         return
 
     _ensure_sheet_configured()

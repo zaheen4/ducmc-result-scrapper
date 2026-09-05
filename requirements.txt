@@ -2,4 +2,4 @@ selenium==4.33.0
 gspread==6.2.1
 beautifulsoup4==4.13.4
 InquirerPy==0.3.4
-python-dotenv==1.1.1
+pytest==9.1.1

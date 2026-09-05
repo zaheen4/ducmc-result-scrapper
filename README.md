@@ -37,19 +37,21 @@ Three files, zero duplication:
 
 ## Setup (Colab)
 
-1. Upload `scraper_common.py` and `colab_scrapper.py` to a Colab notebook.
+1. Upload to `Google Drive/ResultScraperData/`: `scraper_common.py`,
+   `colab_scrapper.py`, `targets.json`, `exam_catalog.json`,
+   `cse_credit_hours.json`, and `credentials.json`.
 
-2. Run:
-
-   ```python
-   %run colab_scrapper.py
-   ```
+2. Open `Result_Scraper_Colab.ipynb` and run all cells top to bottom
+   (Cell 2 edits config, Cell 4 runs the scraper with plain `input()` prompts —
+   no interactive menu in Colab).
 
    Dependencies install automatically. Google Drive mounts for credentials/config storage.
 
 ## Usage
 
-Just run it — no arguments opens a guided menu (mode → exams → reg range → run):
+Just run it — no arguments opens a guided menu (mode → exams → reg range → run).
+The menu's `Settings` item edits the saved config (sheet, session, range, delay);
+first run triggers the same setup automatically.
 
 ```bash
 .venv/bin/python result_scrapper.py

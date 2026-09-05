@@ -54,6 +54,8 @@ from scraper_common import (  # noqa: E402
     _short_label,
     _menu_pick_single,
     _sync_globals_from_config,
+    _ensure_sheet_configured,
+    first_run_setup,
 )
 
 
@@ -1460,3 +1462,46 @@ class TestSyncGlobals:
                 assert scraper_common.REQUEST_DELAY == 2
             assert scraper_common.FORM_DATA["program"] == "prog"
             assert scraper_common.FORM_DATA["session"] == "sess"
+
+    def test_ensure_resyncs_after_setup(self):
+        config = {"google_sheet_url": "", "worksheet_name": ""}
+
+        def fake_setup(cfg):
+            cfg["google_sheet_url"] = "http://fresh"
+            cfg["worksheet_name"] = "fresh-ws"
+
+        with patch('scraper_common.CONFIG', config), \
+             patch('scraper_common.FORM_DATA', {"program": "", "session": "", "exam": ""}), \
+             patch('scraper_common.first_run_setup', side_effect=fake_setup):
+            _ensure_sheet_configured()
+            assert scraper_common.GOOGLE_SHEET_URL == "http://fresh"
+            assert scraper_common.WORKSHEET_NAME == "fresh-ws"
+
+
+class TestFirstRunSetup:
+    def test_asks_request_delay(self):
+        config = {"google_sheet_url": "", "worksheet_name": "", "program": "p",
+                  "session": "s", "start_regi": 710, "end_regi": 813}
+        inputs = iter(["http://sheet", "ws", "p", "s", "710", "813", "4"])
+        with patch('scraper_common.USE_INQUIRERPY', False), \
+             patch('builtins.input', side_effect=lambda *a: next(inputs)), \
+             patch('scraper_common.save_config'), \
+             patch('scraper_common.save_env'):
+            first_run_setup(config)
+        assert config["request_delay"] == 4
+
+
+class TestMenuSettings:
+    def test_settings_runs_setup_and_resyncs(self):
+        config = {
+            "google_sheet_url": "http://x", "worksheet_name": "ws",
+            "program": "p", "session": "s", "start_regi": 710, "end_regi": 813,
+        }
+        with patch('scraper_common.CONFIG', config), \
+             patch('scraper_common.FORM_DATA', {"program": "", "session": "", "exam": ""}), \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Settings (sheet, session, range, delay)"]), \
+             patch('scraper_common.first_run_setup') as mock_setup:
+            interactive_menu()
+            synced_url = scraper_common.GOOGLE_SHEET_URL
+        mock_setup.assert_called_once_with(config)
+        assert synced_url == "http://x"
