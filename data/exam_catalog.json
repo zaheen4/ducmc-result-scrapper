@@ -40,6 +40,57 @@
   },
   "exams": [
     {
+      "id": 1889,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Examination of 2024",
+      "type": "normal",
+      "year": 3,
+      "term": 2,
+      "exam_year": 2024
+    },
+    {
+      "id": 1888,
+      "name": "B.Sc. in Computer Science and Engineering 3rd year 2nd Semester Improvement Examination of 2024 (Retake/Improvement)",
+      "type": "retake",
+      "year": 3,
+      "term": 2,
+      "exam_year": 2024
+    },
+    {
+      "id": 1878,
+      "name": "B.Sc. in Computer Science and Engineering 2nd year 2nd Semester Special Improvement Examination of 2023 (Special Improvement - Old Syllabus)",
+      "type": "retake",
+      "year": 2,
+      "term": 2,
+      "exam_year": 2023,
+      "curriculum": "old",
+      "special": true
+    },
+    {
+      "id": 1851,
+      "name": "B.Sc. in Computer Science and Engineering 4th year 2nd Semester Special Improvement Examination of 2024 (Special Improvement)",
+      "type": "retake",
+      "year": 4,
+      "term": 2,
+      "exam_year": 2024,
+      "special": true
+    },
+    {
+      "id": 1777,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2024",
+      "type": "normal",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2024
+    },
+    {
+      "id": 1776,
+      "name": "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2024 (Retake/Improvement)",
+      "type": "retake",
+      "year": 1,
+      "term": 2,
+      "exam_year": 2024
+    },
+    {
       "id": 1769,
       "name": "B.Sc. in Computer Science and Engineering 4th year 1st Semester Examination of 2024 (2020-2021)",
       "type": "normal",

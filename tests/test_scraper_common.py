@@ -1079,3 +1079,51 @@ class TestLoadCreditHours:
              patch('os.path.exists', return_value=False):
             result = _load_credit_hours()
             assert result is None
+
+
+class TestExamCatalog:
+    """Tests for data/exam_catalog.json integrity."""
+
+    def _load_catalog(self):
+        catalog_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'exam_catalog.json')
+        with open(catalog_path, 'r') as f:
+            return json.load(f)
+
+    def test_ids_unique(self):
+        catalog = self._load_catalog()
+        ids = [e['id'] for e in catalog['exams']]
+        assert len(ids) == len(set(ids))
+
+    def test_required_fields_present(self):
+        catalog = self._load_catalog()
+        for exam in catalog['exams']:
+            assert {'id', 'name', 'type', 'year', 'term', 'exam_year'} <= set(exam.keys())
+            assert exam['type'] in ('normal', 'retake')
+
+    def test_newest_exams_present(self):
+        catalog = self._load_catalog()
+        by_id = {e['id']: e for e in catalog['exams']}
+        assert by_id[1889]['type'] == 'normal'
+        assert by_id[1888]['type'] == 'retake'
+        assert by_id[1878]['special'] is True
+        assert by_id[1851]['special'] is True
+        assert by_id[1777]['type'] == 'normal'
+        assert by_id[1776]['type'] == 'retake'
+
+    def test_new_exams_map_to_sheets(self):
+        catalog = self._load_catalog()
+        by_id = {e['id']: e for e in catalog['exams']}
+        assert map_exam_to_sheet(by_id[1889]['name']) == 'PerCourse_L3T2'
+        assert map_exam_to_sheet(by_id[1888]['name']) == 'PerCourse_L3T2'
+        assert map_exam_to_sheet(by_id[1878]['name']) == 'PerCourse_L2T2'
+        assert map_exam_to_sheet(by_id[1851]['name']) == 'PerCourse_L4T2'
+        assert map_exam_to_sheet(by_id[1777]['name']) == 'PerCourse_L1T2'
+        assert map_exam_to_sheet(by_id[1776]['name']) == 'PerCourse_L1T2'
+
+    def test_new_retakes_match_retake_filter(self):
+        catalog = self._load_catalog()
+        retake_keywords = ['improvement', 'retake']
+        by_id = {e['id']: e for e in catalog['exams']}
+        for exam_id in (1888, 1878, 1851, 1776):
+            name = by_id[exam_id]['name']
+            assert any(kw in name.lower() for kw in retake_keywords)
