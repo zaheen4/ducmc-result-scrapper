@@ -1898,26 +1898,37 @@ def run():
 
     import argparse
 
-    parser = argparse.ArgumentParser(description="DUCMC Result Scraper")
-    parser.add_argument("--list-exams", action="store_true", help="Interactively select an exam and update config.json")
-    parser.add_argument("--force", action="store_true", help="Force re-select even if exam is already set")
-    parser.add_argument("--fresh", action="store_true", help="Ignore progress.json and start from scratch")
-    parser.add_argument("--dry-run", action="store_true", help="Scrape without writing to sheet")
-    parser.add_argument("--log", action="store_true", help="Save output to a log file")
-    parser.add_argument("--reg", type=int, help="Scrape a single reg number")
-    parser.add_argument("--retake", action="store_true", help="Retake/improvement mode — update PerCourse sheets with improved grades")
-    parser.add_argument("--retake-exam", type=str, help="Retake exam code (e.g. L1T2R, L1T2R-2024) or name (overrides config)")
-    parser.add_argument("--exam", type=str, help="Exam code (e.g. L1T2) or name (overrides config, skips interactive selection)")
-    parser.add_argument("--all", action="store_true", help="Scrape every targets.json exam for the mode, sequentially")
-    parser.add_argument("--sheet-url", type=str, help="Google Sheet URL (overrides config)")
-    parser.add_argument("--worksheet", type=str, help="Worksheet name (overrides config)")
-    parser.add_argument("--program", type=str, help="Program name (overrides config)")
-    parser.add_argument("--session", type=str, help="Session year (overrides config)")
-    parser.add_argument("--start-regi", type=int, help="Starting reg number (overrides config)")
-    parser.add_argument("--end-regi", type=int, help="Ending reg number (overrides config)")
-    parser.add_argument("--validate", action="store_true", help="Test browser + sheet connection, then exit")
-    parser.add_argument("--show-config", action="store_true", help="Print active config and exit")
-    parser.add_argument("--status", action="store_true", help="Print progress status and exit")
+    parser = argparse.ArgumentParser(
+        description="DUCMC Result Scraper — run with no arguments for the interactive menu.",
+        epilog="Examples:\n"
+               "  python result_scrapper.py\n"
+               "  python result_scrapper.py --exam L3T2\n"
+               "  python result_scrapper.py --retake --retake-exam L1T2R-2024\n"
+               "  python result_scrapper.py --all\n"
+               "  python result_scrapper.py --retake --all --dry-run\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    basic = parser.add_argument_group("basic options")
+    basic.add_argument("--exam", type=str, help="Exam code (e.g. L1T2) or name (overrides config, skips interactive selection)")
+    basic.add_argument("--retake", action="store_true", help="Retake/improvement mode — update PerCourse sheets with improved grades")
+    basic.add_argument("--retake-exam", type=str, help="Retake exam code (e.g. L1T2R, L1T2R-2024) or name (overrides config)")
+    basic.add_argument("--all", action="store_true", help="Scrape every targets.json exam for the mode, sequentially")
+    basic.add_argument("--dry-run", action="store_true", help="Scrape without writing to sheet (leaves progress files untouched)")
+    basic.add_argument("--reg", type=int, help="Scrape a single reg number")
+    advanced = parser.add_argument_group("advanced options")
+    advanced.add_argument("--list-exams", action="store_true", help="Interactively select an exam and update config.json")
+    advanced.add_argument("--force", action="store_true", help="Force re-select even if exam is already set")
+    advanced.add_argument("--fresh", action="store_true", help="Ignore progress files and start from scratch")
+    advanced.add_argument("--log", action="store_true", help="Save output to a log file")
+    advanced.add_argument("--sheet-url", type=str, help="Google Sheet URL (overrides config)")
+    advanced.add_argument("--worksheet", type=str, help="Worksheet name (overrides config)")
+    advanced.add_argument("--program", type=str, help="Program name (overrides config)")
+    advanced.add_argument("--session", type=str, help="Session year (overrides config)")
+    advanced.add_argument("--start-regi", type=int, help="Starting reg number (overrides config)")
+    advanced.add_argument("--end-regi", type=int, help="Ending reg number (overrides config)")
+    advanced.add_argument("--validate", action="store_true", help="Test browser + sheet connection, then exit")
+    advanced.add_argument("--show-config", action="store_true", help="Print active config and exit")
+    advanced.add_argument("--status", action="store_true", help="Print progress status and exit")
     args = parser.parse_args()
 
     if len(sys.argv) == 1 and USE_INQUIRERPY:

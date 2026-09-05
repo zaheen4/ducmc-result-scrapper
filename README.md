@@ -49,10 +49,32 @@ Three files, zero duplication:
 
 ## Usage
 
-```bash
-# Basic run (uses config.json settings)
-.venv/bin/python result_scrapper.py
+Just run it — no arguments opens a guided menu (mode → exams → reg range → run):
 
+```bash
+.venv/bin/python result_scrapper.py
+```
+
+Short codes skip the menu entirely (`L1T2` normal, `L1T2R` retake, `L1T2R-2024` one year):
+
+```bash
+# Single semester
+.venv/bin/python result_scrapper.py --exam L3T2
+
+# Single retake exam
+.venv/bin/python result_scrapper.py --retake --retake-exam L1T2R-2024
+
+# Everything in targets.json, sequentially (normal + resume per exam)
+.venv/bin/python result_scrapper.py --all
+.venv/bin/python result_scrapper.py --retake --all
+
+# Preview without writing (also leaves progress files untouched)
+.venv/bin/python result_scrapper.py --exam L3T2 --dry-run
+```
+
+Advanced flags (full list in `--help` under "advanced options"):
+
+```bash
 # Interactively select an exam (InquirerPy fuzzy search)
 .venv/bin/python result_scrapper.py --list-exams
 
@@ -61,9 +83,6 @@ Three files, zero duplication:
 
 # Scrape a single registration number
 .venv/bin/python result_scrapper.py --reg 810
-
-# Dry run — scrape without writing to the sheet
-.venv/bin/python result_scrapper.py --dry-run
 
 # Validate config before a long run
 .venv/bin/python result_scrapper.py --validate
@@ -81,26 +100,45 @@ Three files, zero duplication:
 
 ### CLI Flags
 
+Basic flags (see `--help`). Everything else lives under "advanced options".
+
 | Flag | Description |
 |---|---|
+| `--exam CODE` | Exam code (`L1T2`) or full name — in-memory, auto-selects PerCourse sheet |
+| `--retake` | Enable retake/improvement scraping mode |
+| `--retake-exam CODE` | Retake code (`L1T2R`, `L1T2R-2024`) or full name — in-memory |
+| `--all` | Scrape every `targets.json` exam for the mode, sequentially |
+| `--dry-run` | Scrape without writing to the sheet (progress files untouched) |
+| `--reg N` | Scrape a single reg number |
 | `--list-exams` | Interactively select an exam and save to config |
 | `--force` | Override existing exam selection (with `--list-exams`) |
-| `--fresh` | Ignore progress.json, start from scratch |
-| `--dry-run` | Scrape without writing to the sheet |
+| `--fresh` | Ignore progress files, start from scratch |
 | `--validate` | Test browser + sheet connection, then exit |
 | `--show-config` | Print active configuration and exit |
 | `--status` | Print progress status and exit |
 | `--log` | Save output to `data/logs/` |
-| `--reg N` | Scrape a single reg number |
-| `--exam` | Set exam in memory (auto-selects PerCourse sheet, doesn't touch config.json) |
-| `--retake` | Enable retake/improvement scraping mode |
-| `--retake-exam` | Set retake exam in memory (for multi-terminal retake scraping) |
 | `--sheet-url` | Override Google Sheet URL |
 | `--worksheet` | Override worksheet name |
 | `--program` | Override program name |
 | `--session` | Override session year |
 | `--start-regi` | Override starting reg number |
 | `--end-regi` | Override ending reg number |
+
+## Exam Codes & Targets
+
+`--exam`/`--retake-exam` take short codes instead of 200-char titles:
+
+| Code | Meaning |
+|---|---|
+| `L1T2` | Normal slot from `targets.json` (exact, one title) |
+| `L1T2R` | Retake slot — resolves if unique, else errors with year options |
+| `L1T2R-2024` | One retake year |
+| (full title) | Passed through untouched (backwards compatible) |
+
+Anything missing from `targets.json` falls back to an `exam_catalog.json` search
+(same disambiguation rules). `data/targets.json` holds this batch's exams:
+6 normals (`L1T1`–`L3T2`) plus every yearly retake per slot — edit it when
+sharing with juniors or when new exams publish.
 
 ## Config
 
@@ -159,17 +197,17 @@ Use `--retake` to scrape retake/improvement exam results (only course grades, no
 
 ## Multi-Terminal Concurrent Scraping
 
-Run multiple terminals for different semesters using `--exam` or `--retake-exam`. These set the exam **in memory only** (config untouched) and each terminal gets its own per-exam progress file.
+Run multiple terminals for different semesters using short codes (in memory only, config untouched, per-exam progress files). The menu's "Show multi-terminal commands" prints these for you.
 
 ```bash
 # Terminal 1
-.venv/bin/python result_scrapper.py --exam "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2022" --start-regi 710 --end-regi 813
+.venv/bin/python result_scrapper.py --exam L1T2 --start-regi 710 --end-regi 813
 
 # Terminal 2
-.venv/bin/python result_scrapper.py --exam "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2023" --start-regi 710 --end-regi 813
+.venv/bin/python result_scrapper.py --exam L2T1 --start-regi 710 --end-regi 813
 
 # Terminal 3 — retake
-.venv/bin/python result_scrapper.py --retake --retake-exam "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)" --start-regi 710 --end-regi 813
+.venv/bin/python result_scrapper.py --retake --retake-exam L1T2R-2023 --start-regi 710 --end-regi 813
 ```
 
 - Worksheet auto-derived from exam title — no need to set `--worksheet`
@@ -181,6 +219,7 @@ Run multiple terminals for different semesters using `--exam` or `--retake-exam`
 | File | Description |
 |---|---|
 | `data/config.json` | Runtime configuration (gitignored) |
+| `data/targets.json` | This batch's exams (slot codes → titles) — drives menu, codes, `--all` |
 | `data/progress_{hash}.json` | Per-exam scrape progress — auto-resumed on restart (gitignored) |
 | `data/cse_credit_hours.json` | Credit hours for all CSE courses — used for GPA recalculation |
 | `data/exam_catalog.json` | All CSE exams, sessions, and metadata scraped from portal — used for `--exam`/`--retake-exam` |

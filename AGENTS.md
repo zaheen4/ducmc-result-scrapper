@@ -22,8 +22,16 @@ colab_scrapper.py   ─┘
 ## Run
 
 ```bash
-# Local — requires Firefox + geckodriver
+# Local — requires Firefox + geckodriver. No args opens the interactive menu.
 python result_scrapper.py
+
+# Short codes skip the menu: L1T2 normal, L1T2R retake, L1T2R-2024 one year
+python result_scrapper.py --exam L3T2
+python result_scrapper.py --retake --retake-exam L1T2R-2024
+
+# Batch: every targets.json exam for the mode, sequentially
+python result_scrapper.py --all
+python result_scrapper.py --retake --all
 
 # Colab — upload both .py files, then:
 # %run colab_scrapper.py
@@ -66,15 +74,24 @@ All runtime data lives in `data/` directory (gitignored). Config is stored in `d
 - Colab: plain `input()` with numbered list
 - Persistent values also saved to `.env` (gitignored) so they survive config.json deletion
 - CLI flags (`--sheet-url`, `--worksheet`, `--program`, `--session`, `--start-regi`, `--end-regi`) override config
+- `--exam`/`--retake-exam` take short codes (`L1T2`, `L1T2R`, `L1T2R-2024`) or raw titles; `--help` groups basic vs advanced flags
 - `exam` can be empty string to skip exam selection (will fail at runtime)
 - `worksheet_name` is auto-derived from exam title when `--exam` is used (e.g. "1st year 2nd Semester" → `PerCourse_L1T2`), unless `--worksheet` is explicitly passed
 
-## Resume (`data/progress.json`)
+## Resume
 
 Scraped reg numbers saved to per-exam progress files, scoped by `(sheet_url, worksheet, exam)` hash. On restart, those students are skipped.
 - Normal mode: `data/progress_{hash}.json`
 - Retake mode: `data/progress_retake_{hash}.json`
 - Delete the relevant progress file to re-scrape that exam from scratch.
+- `--dry-run` never creates, modifies, or clears progress files.
+
+## Exam Codes & Batch (`data/targets.json`)
+
+- `data/targets.json` (tracked) maps slot codes → titles for this batch: 6 normals (`L1T1`–`L3T2`), retake slots hold yearly lists
+- `resolve_exam_code()` in `scraper_common.py`: `L1T2` → single title; `L1T2R` → unique or `ExamCodeError` with `L1T2R-YYYY` options; `L1T2R-2024` → one year; missing slots fall back to `exam_catalog.json` search
+- `run_batch()` runs every targets exam for the mode sequentially (per-exam progress, resumable); `--all` flag; menu "Everything pending" calls the same path
+- Menu's "Show multi-terminal commands" prints short-code one-liners
 
 ## Retake/Improvement Mode
 
@@ -104,17 +121,17 @@ python result_scrapper.py --retake --dry-run
 
 ## Multi-Terminal Concurrent Scraping
 
-Use `--exam` or `--retake-exam` flags to run multiple terminals concurrently for different semesters. These flags set the exam **in memory only** (no disk write to config.json) and each terminal gets its own per-exam progress file.
+Use short codes (`--exam L1T2`, `--retake --retake-exam L1T2R-2024`) to run multiple terminals concurrently. These set the exam **in memory only** (no disk write to config.json) and each terminal gets its own per-exam progress file. The menu's "Show multi-terminal commands" prints the one-liners for you.
 
 ```bash
 # Terminal 1 — normal semester
-python result_scrapper.py --exam "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Examination of 2022" --start-regi 710 --end-regi 813
+python result_scrapper.py --exam L1T2 --start-regi 710 --end-regi 813
 
-# Terminal 2 — different semester (same command, different exam)
-python result_scrapper.py --exam "B.Sc. in Computer Science and Engineering 2nd year 1st Semester Examination of 2023" --start-regi 710 --end-regi 813
+# Terminal 2 — different semester
+python result_scrapper.py --exam L2T1 --start-regi 710 --end-regi 813
 
 # Terminal 3 — retake scraping
-python result_scrapper.py --retake --retake-exam "B.Sc. in Computer Science and Engineering 1st year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)" --start-regi 710 --end-regi 813
+python result_scrapper.py --retake --retake-exam L1T2R-2024 --start-regi 710 --end-regi 813
 ```
 
 - `worksheet_name` is auto-derived from exam title (e.g. "1st year 2nd Semester" → `PerCourse_L1T2`)
