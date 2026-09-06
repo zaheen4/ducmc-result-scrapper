@@ -1907,19 +1907,30 @@ def _short_label(title):
 
 def _prompt_list(message, choices):
     from InquirerPy import prompt as _prompt
-    answers = _prompt([{"type": "list", "name": "choice", "message": message, "choices": choices}])
+    answers = _prompt([{"type": "list", "name": "choice", "message": message, "choices": choices}],
+                      vi_mode=True)
+    return answers["choice"]
+
+
+def _prompt_fuzzy(message, choices):
+    """Filter-as-you-type picker (Yazi-find style) for longer choice lists."""
+    from InquirerPy import prompt as _prompt
+    answers = _prompt([{"type": "fuzzy", "name": "choice", "message": message, "choices": choices}],
+                      vi_mode=True)
     return answers["choice"]
 
 
 def _prompt_confirm(message, default=False):
     from InquirerPy import prompt as _prompt
-    answers = _prompt([{"type": "confirm", "name": "ok", "message": message, "default": default}])
+    answers = _prompt([{"type": "confirm", "name": "ok", "message": message, "default": default}],
+                      vi_mode=True)
     return bool(answers["ok"])
 
 
 def _prompt_input(message, default=""):
     from InquirerPy import prompt as _prompt
-    answers = _prompt([{"type": "input", "name": "value", "message": message, "default": str(default)}])
+    answers = _prompt([{"type": "input", "name": "value", "message": message, "default": str(default)}],
+                      vi_mode=True)
     return answers["value"].strip()
 
 
@@ -1972,8 +1983,16 @@ def _ensure_sheet_configured():
         _sync_globals_from_config()
 
 
-def _menu_pick_single(section, retake):
-    """Returns one exam title: slot picker (+ free-form code fallback)."""
+def total_target_exams(section):
+    """Counts individual exam titles in a targets section (lists hold yearly retakes)."""
+    return sum(len(v) if isinstance(v, list) else 1 for v in section.values())
+
+
+def _menu_pick_single(section, retake, crumbs=""):
+    """Returns one exam title: fuzzy slot picker (+ free-form code fallback).
+
+    Returns BACK when the user backs out.
+    """
     choices = []
     for slot, value in section.items():
         titles = value if isinstance(value, list) else [value]
@@ -1983,7 +2002,12 @@ def _menu_pick_single(section, retake):
                 code += f"-{_exam_year_of(title)}"
             choices.append({"name": f"{code} — {_short_label(title)}", "value": title})
     choices.append({"name": "Other exam code… (e.g. L4T1, L1T2R-2022)", "value": None})
-    picked = _prompt_list("Which semester?", choices)
+    choices.append({"name": BACK, "value": BACK})
+    if crumbs:
+        ts(f"--- {crumbs} ---")
+    picked = _prompt_fuzzy("Which semester? (type to filter)" + NAV_HINT, choices)
+    if picked == BACK:
+        return BACK
     if picked is not None:
         return picked
     while True:
@@ -2010,8 +2034,13 @@ def _sync_globals_from_config():
         ts(f"[WARN] Invalid request_delay {CONFIG.get('request_delay')!r} — keeping {REQUEST_DELAY}s.")
 
 
+BACK = "← Back"
+
+NAV_HINT = " (j/k navigate · Enter select)"
+
+
 def interactive_menu():
-    """Zero-flag guided flow: mode -> scope -> exam -> range -> run."""
+    """Looping guided flow: mode -> scope -> exam -> range -> run. Exit quits."""
     global START_REGI, END_REGI
     _sync_globals_from_config()
     ts("--- DUCMC Result Scraper ---")
@@ -2019,88 +2048,105 @@ def interactive_menu():
     ts(f"  Session:   {CONFIG.get('session')}")
     ts(f"  Reg range: {CONFIG.get('start_regi')}–{CONFIG.get('end_regi')}\n")
 
-    mode = _prompt_list("What to scrape?", ["Normal semester", "Retake / improvement"])
-    retake = mode.startswith("Retake")
-    scope = _prompt_list("Which exams?", [
-        "Single semester",
-        "Everything pending (targets.json)",
-        "Show multi-terminal commands",
-        "Settings (sheet, session, range, delay)",
-        "Update exam data (portal → catalog/targets)",
-    ])
+    while True:
+        mode = _prompt_list("What to scrape?" + NAV_HINT,
+                            ["Normal semester", "Retake / improvement",
+                             "Update exam data", "Exit"])
+        if mode == "Exit":
+            return
+        crumbs = mode
+        if mode == "Update exam data":
+            update_exam_data()
+            continue
+        retake = mode.startswith("Retake")
 
-    targets = load_targets()
-    section = targets.get('retake' if retake else 'normal', {})
+        scope = _prompt_list("Which exams?" + NAV_HINT, [
+            "Single semester",
+            "Everything pending (targets.json)",
+            "Show multi-terminal commands",
+            "Settings (sheet, session, range, delay)",
+            "Update exam data (portal → catalog/targets)",
+            BACK,
+        ])
+        if scope == BACK:
+            continue
+        crumbs += f" › {scope}"
 
-    if scope.startswith("Show"):
+        targets = load_targets()
+        section = targets.get('retake' if retake else 'normal', {})
+
+        if scope.startswith("Show"):
+            if not section:
+                ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
+                continue
+            _print_parallel_commands(section, retake)
+            continue
+
+        if scope.startswith("Settings"):
+            try:
+                first_run_setup(CONFIG)
+            except (KeyboardInterrupt, EOFError):
+                ts("\nCancelled.")
+                continue
+            _sync_globals_from_config()
+            ts("✅ Settings saved.")
+            continue
+
+        if scope.startswith("Update"):
+            update_exam_data()
+            continue
+
         if not section:
             ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
-            return
-        _print_parallel_commands(section, retake)
-        return
+            continue
 
-    if scope.startswith("Settings"):
-        try:
-            first_run_setup(CONFIG)
-        except (KeyboardInterrupt, EOFError):
-            ts("\nCancelled.")
-            return
-        _sync_globals_from_config()
-        ts("✅ Settings saved.")
-        return
+        _ensure_sheet_configured()
 
-    if scope.startswith("Update"):
-        update_exam_data()
-        return
+        single_title = None
+        if scope.startswith("Single"):
+            single_title = _menu_pick_single(section, retake, crumbs)
+            if single_title == BACK:
+                continue
+            _set_target_context(single_title, retake)
+            crumbs += f" › {single_title}"
 
-    if not section:
-        ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
-        return
+        while True:
+            try:
+                start, end = _parse_range(
+                    _prompt_input("Reg range", f"{CONFIG.get('start_regi')}-{CONFIG.get('end_regi')}"),
+                    CONFIG.get('start_regi'), CONFIG.get('end_regi'))
+                break
+            except ValueError as e:
+                ts(f"[ERROR] {e}")
+        if single_title is not None:
+            _print_resume_status(retake, start, end)
+        dry_run = _prompt_confirm("Dry run (no sheet writes)?", default=False)
+        fresh = False
+        if not dry_run:
+            fresh = _prompt_confirm("Ignore saved progress and start fresh?", default=False)
 
-    _ensure_sheet_configured()
+        CONFIG["start_regi"] = start
+        CONFIG["end_regi"] = end
+        START_REGI = start  # pyright: ignore[reportConstantRedefinition]
+        END_REGI = end  # pyright: ignore[reportConstantRedefinition]
 
-    single_title = None
-    if scope.startswith("Single"):
-        single_title = _menu_pick_single(section, retake)
-        _set_target_context(single_title, retake)
-
-    while True:
-        try:
-            start, end = _parse_range(
-                _prompt_input("Reg range", f"{CONFIG.get('start_regi')}-{CONFIG.get('end_regi')}"),
-                CONFIG.get('start_regi'), CONFIG.get('end_regi'))
-            break
-        except ValueError as e:
-            ts(f"[ERROR] {e}")
-    if single_title is not None:
-        _print_resume_status(retake, start, end)
-    dry_run = _prompt_confirm("Dry run (no sheet writes)?", default=False)
-    fresh = False
-    if not dry_run:
-        fresh = _prompt_confirm("Ignore saved progress and start fresh?", default=False)
-
-    CONFIG["start_regi"] = start
-    CONFIG["end_regi"] = end
-    START_REGI = start  # pyright: ignore[reportConstantRedefinition]
-    END_REGI = end  # pyright: ignore[reportConstantRedefinition]
-
-    if single_title is not None:
-        if fresh:
+        ts(f"--- {crumbs} ---")
+        if single_title is not None:
+            if fresh:
+                if retake:
+                    _save_retake_progress([])
+                else:
+                    save_progress([])
+                ts("[INFO] Progress cleared — starting fresh.")
             if retake:
-                _save_retake_progress([])
+                scrape_retake_results(dry_run=dry_run, reg_num=start if start == end else None)
             else:
-                save_progress([])
-            ts("[INFO] Progress cleared — starting fresh.")
-        if retake:
-            scrape_retake_results(dry_run=dry_run, reg_num=start if start == end else None)
+                main(dry_run=dry_run, reg_num=start if start == end else None)
         else:
-            main(dry_run=dry_run, reg_num=start if start == end else None)
-    else:
-        total_targets = sum(len(v) if isinstance(v, list) else 1 for v in section.values())
-        if not _prompt_confirm(f"Run all {total_targets} {'retake' if retake else 'normal'} exams?", default=False):
-            ts("Cancelled.")
-            return
-        run_batch(retake=retake, dry_run=dry_run, fresh=fresh)
+            if not _prompt_confirm(f"Run {total_target_exams(section)} {'retake' if retake else 'normal'} exams?", default=False):
+                ts("Cancelled.")
+                continue
+            run_batch(retake=retake, dry_run=dry_run, fresh=fresh)
 
 
 # ===================================================================

@@ -49,9 +49,11 @@ Three files, zero duplication:
 
 ## Usage
 
-Just run it — no arguments opens a guided menu (mode → exams → reg range → dry-run → fresh).
-Single-semester runs show resume status ("84 of 104 already scraped") and offer a
-fresh restart; batch mode passes the same choice through to every exam.
+Just run it — no arguments opens a guided menu that loops until you quit:
+
+- Mode (Normal / Retake / **Update exam data** / Exit) → scope → exam → range → dry-run → fresh
+- `j/k` navigate, arrows work too, `Enter` selects; exam picker filters as you type
+- `← Back` at any level returns up; single runs show resume status and offer a fresh restart
 The menu's `Settings` item edits the saved config (sheet, session, range, delay);
 first run triggers the same setup automatically.
 

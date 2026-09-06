@@ -53,6 +53,10 @@ from scraper_common import (  # noqa: E402
     _parse_range,
     _short_label,
     _menu_pick_single,
+    _prompt_list,
+    _prompt_fuzzy,
+    _prompt_confirm,
+    _prompt_input,
     _sync_globals_from_config,
     _ensure_sheet_configured,
     first_run_setup,
@@ -1386,7 +1390,8 @@ class TestInteractiveMenu:
     def test_single_normal_runs_main(self, capsys):
         patches = self._base_patches()
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Single semester", "Normal L1T2 Examination of 2022"]), \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Single semester", "Exit"]), \
+             patch('scraper_common._prompt_fuzzy', return_value="Normal L1T2 Examination of 2022"), \
              patch('scraper_common._prompt_input', return_value="710-813"), \
              patch('scraper_common._prompt_confirm', return_value=False), \
              patch('scraper_common.main') as mock_main:
@@ -1403,7 +1408,8 @@ class TestInteractiveMenu:
     def test_single_retake_dry_run(self):
         patches = self._base_patches()
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Retake / improvement", "Single semester", "Retake L1T2 Examination of 2023"]), \
+             patch('scraper_common._prompt_list', side_effect=["Retake / improvement", "Single semester", "Exit"]), \
+             patch('scraper_common._prompt_fuzzy', return_value="Retake L1T2 Examination of 2023"), \
              patch('scraper_common._prompt_input', return_value="810"), \
              patch('scraper_common._prompt_confirm', return_value=True) as mock_confirm, \
              patch('scraper_common.scrape_retake_results') as mock_retake:
@@ -1416,7 +1422,8 @@ class TestInteractiveMenu:
     def test_single_fresh_clears_progress(self):
         patches = self._base_patches()
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Single semester", "Normal L1T2 Examination of 2022"]), \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Single semester", "Exit"]), \
+             patch('scraper_common._prompt_fuzzy', return_value="Normal L1T2 Examination of 2022"), \
              patch('scraper_common._prompt_input', return_value="710-813"), \
              patch('scraper_common._prompt_confirm', side_effect=[False, True]), \
              patch('scraper_common.save_progress') as mock_save, \
@@ -1428,7 +1435,7 @@ class TestInteractiveMenu:
     def test_everything_runs_batch(self):
         patches = self._base_patches()
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Everything pending (targets.json)"]), \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Everything pending (targets.json)", "Exit"]), \
              patch('scraper_common._prompt_input', return_value="710-813"), \
              patch('scraper_common._prompt_confirm', side_effect=[False, False, True]), \
              patch('scraper_common.run_batch') as mock_batch:
@@ -1438,26 +1445,59 @@ class TestInteractiveMenu:
     def test_everything_fresh_passthrough(self):
         patches = self._base_patches()
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Everything pending (targets.json)"]), \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Everything pending (targets.json)", "Exit"]), \
              patch('scraper_common._prompt_input', return_value="710-813"), \
              patch('scraper_common._prompt_confirm', side_effect=[False, True, True]), \
              patch('scraper_common.run_batch') as mock_batch:
             interactive_menu()
         mock_batch.assert_called_once_with(retake=False, dry_run=False, fresh=True)
 
+    def test_exit_first_quits_immediately(self):
+        with patch('scraper_common._prompt_list', return_value="Exit"), \
+             patch('scraper_common.main') as mock_main:
+            interactive_menu()
+        mock_main.assert_not_called()
+
+    def test_back_from_scope_returns_to_mode(self):
+        patches = self._base_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "← Back", "Exit"]), \
+             patch('scraper_common.main') as mock_main:
+            interactive_menu()
+        mock_main.assert_not_called()
+
+    def test_back_from_picker_returns_to_mode(self):
+        patches = self._base_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Single semester", "Exit"]), \
+             patch('scraper_common._prompt_fuzzy', return_value="← Back"), \
+             patch('scraper_common.main') as mock_main:
+            interactive_menu()
+        mock_main.assert_not_called()
+
+    def test_update_from_mode(self):
+        with patch('scraper_common._prompt_list', side_effect=["Update exam data", "Exit"]), \
+             patch('scraper_common.update_exam_data') as mock_update:
+            interactive_menu()
+        mock_update.assert_called_once_with()
+
     def test_show_commands_prints_one_liners(self, capsys):
-        with patch('scraper_common._prompt_list', side_effect=["Normal semester", "Show multi-terminal commands"]), \
+        with patch('scraper_common._prompt_list', side_effect=["Normal semester", "Show multi-terminal commands", "Exit"]), \
              patch('scraper_common.load_targets', return_value=self.TARGETS):
             interactive_menu()
         out = capsys.readouterr().out
         assert "--exam L1T2" in out
 
     def test_freeform_code_fallback(self):
-        with patch('scraper_common._prompt_list', return_value=None), \
+        with patch('scraper_common._prompt_fuzzy', return_value=None), \
              patch('scraper_common._prompt_input', return_value="L1T2"), \
              patch('scraper_common.load_targets', return_value=self.TARGETS):
             title = _menu_pick_single(self.TARGETS["normal"], retake=False)
         assert title == "Normal L1T2 Examination of 2022"
+
+    def test_picker_back_returns_sentinel(self):
+        with patch('scraper_common._prompt_fuzzy', return_value="← Back"):
+            assert _menu_pick_single(self.TARGETS["normal"], retake=False) == "← Back"
 
 
 class TestSyncGlobals:
@@ -1528,7 +1568,7 @@ class TestMenuSettings:
         }
         with patch('scraper_common.CONFIG', config), \
              patch('scraper_common.FORM_DATA', {"program": "", "session": "", "exam": ""}), \
-             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Settings (sheet, session, range, delay)"]), \
+             patch('scraper_common._prompt_list', side_effect=["Normal semester", "Settings (sheet, session, range, delay)", "Exit"]), \
              patch('scraper_common.first_run_setup') as mock_setup:
             interactive_menu()
             synced_url = scraper_common.GOOGLE_SHEET_URL
@@ -1688,3 +1728,18 @@ class TestUpdateExamData:
              patch('scraper_common._prompt_confirm') as mock_confirm:
             update_exam_data()
         mock_confirm.assert_not_called()
+
+
+class TestPromptHelpers:
+    def test_helpers_enable_vi_mode(self):
+        import InquirerPy
+        cases = [
+            (_prompt_list, {"message": "m", "choices": ["a"]}, "choice"),
+            (_prompt_fuzzy, {"message": "m", "choices": ["a"]}, "choice"),
+            (_prompt_confirm, {"message": "m"}, "ok"),
+            (_prompt_input, {"message": "m"}, "value"),
+        ]
+        for helper, kwargs, key in cases:
+            with patch.object(InquirerPy, 'prompt', return_value={key: "x"}) as mock_prompt:
+                helper(**kwargs)
+                assert mock_prompt.call_args[1].get("vi_mode") is True
