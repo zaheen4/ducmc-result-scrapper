@@ -13,6 +13,7 @@ import html as html_module
 import re
 import hashlib
 import urllib.request
+import contextlib
 from datetime import datetime
 from typing import Any, TextIO
 
@@ -753,7 +754,8 @@ def select_retake_exam(force=False):
                     "choices": retake_exams,
                 }
             ]
-            answers = inq_prompt(questions)
+            with _alt_screen():
+                answers = inq_prompt(questions)
             selected = answers["exam"]
         else:
             ts("")
@@ -941,7 +943,8 @@ def first_run_setup(config):
                 "default": str(config.get("request_delay", 1)),
             },
         ]
-        answers = inq_prompt(questions)
+        with _alt_screen():
+            answers = inq_prompt(questions)
         config["google_sheet_url"] = str(answers["google_sheet_url"])
         config["worksheet_name"] = str(answers["worksheet_name"])
         config["program"] = str(answers["program"])
@@ -1021,7 +1024,8 @@ def select_exam(force=False):
                     "choices": exam_options,
                 }
             ]
-            answers = inq_prompt(questions)
+            with _alt_screen():
+                answers = inq_prompt(questions)
             selected = answers["exam"]
         else:
             ts("")
@@ -1905,12 +1909,49 @@ def _short_label(title):
     return re.sub(r'^B\.Sc\. in Computer Science and Engineering\s+', '', normalize_text(title))
 
 
+@contextlib.contextmanager
+def _alt_screen():
+    """Runs a menu prompt on the terminal's alternate screen buffer.
+
+    Menu chrome never touches scrollback (Yazi-style); only intentional output
+    stays. Silent no-op when stdout isn't a real terminal.
+    """
+    if sys.stdout.isatty() and os.environ.get("TERM", "") not in ("", "dumb"):
+        sys.stdout.write("\x1b[?1049h")
+        sys.stdout.flush()
+        try:
+            yield True
+        finally:
+            sys.stdout.write("\x1b[?1049l")
+            sys.stdout.flush()
+    else:
+        yield False
+
+
+def _choice_name(choices, value):
+    """Finds the display label for a picked choice value (None if backed out)."""
+    if value is None:
+        return None
+    for choice in choices:
+        if isinstance(choice, dict) and choice.get("value") == value:
+            return str(choice.get("name", value))
+    return str(value)
+
+
+def _echo_answer(message, answer):
+    """Prints one answered-prompt line (the context InquirerPy echoes inline)."""
+    ts(f"? {message} → {answer if answer is not None else '(back)'}")
+
+
 def _prompt_list(message, choices):
     from InquirerPy import prompt as _prompt
-    answers = _prompt([{"type": "list", "name": "choice", "message": message,
-                        "choices": choices, "mandatory": False}],
-                      vi_mode=True, keybindings=LIST_NAV_KEYS)
-    return answers["choice"]  # None means backed out
+    with _alt_screen():
+        answers = _prompt([{"type": "list", "name": "choice", "message": message,
+                            "choices": choices, "mandatory": False}],
+                          vi_mode=True, keybindings=LIST_NAV_KEYS)
+    choice = answers["choice"]  # None means backed out
+    _echo_answer(message, _choice_name(choices, choice))
+    return choice
 
 
 def _prompt_fuzzy(message, choices, allow_back=False):
@@ -1921,22 +1962,31 @@ def _prompt_fuzzy(message, choices, allow_back=False):
     if allow_back:
         question["mandatory"] = False
         keybindings = {"skip": [{"key": "escape"}]}
-    answers = _prompt([question], vi_mode=True, keybindings=keybindings)
-    return answers["choice"]
+    with _alt_screen():
+        answers = _prompt([question], vi_mode=True, keybindings=keybindings)
+    choice = answers["choice"]
+    _echo_answer(message, _choice_name(choices, choice))
+    return choice
 
 
 def _prompt_confirm(message, default=False):
     from InquirerPy import prompt as _prompt
-    answers = _prompt([{"type": "confirm", "name": "ok", "message": message, "default": default}],
-                      vi_mode=True)
-    return bool(answers["ok"])
+    with _alt_screen():
+        answers = _prompt([{"type": "confirm", "name": "ok", "message": message, "default": default}],
+                          vi_mode=True)
+    result = bool(answers["ok"])
+    _echo_answer(message, "Yes" if result else "No")
+    return result
 
 
 def _prompt_input(message, default=""):
     from InquirerPy import prompt as _prompt
-    answers = _prompt([{"type": "input", "name": "value", "message": message, "default": str(default)}],
-                      vi_mode=True)
-    return answers["value"].strip()
+    with _alt_screen():
+        answers = _prompt([{"type": "input", "name": "value", "message": message, "default": str(default)}],
+                          vi_mode=True)
+    value = answers["value"].strip()
+    _echo_answer(message, value)
+    return value
 
 
 def _parse_range(text, default_start, default_end):

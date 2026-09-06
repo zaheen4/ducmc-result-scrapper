@@ -1783,3 +1783,71 @@ class TestPromptHelpers:
         with patch.object(InquirerPy, 'prompt', return_value={"choice": "a"}) as mock_prompt:
             _prompt_fuzzy("m", ["a"])
             assert "mandatory" not in mock_prompt.call_args[0][0][0]
+
+
+class TestAltScreen:
+    def test_no_tty_is_silent(self, capsys):
+        import scraper_common as mod
+        with mod._alt_screen() as active:
+            assert active is False
+        assert capsys.readouterr().out == ""
+
+    def test_tty_emits_switch_codes(self, capsys):
+        import scraper_common as mod
+
+        class FakeStdout:
+            def __init__(self):
+                self.buf = ""
+
+            def isatty(self):
+                return True
+
+            def write(self, s):
+                self.buf += s
+
+            def flush(self):
+                pass
+
+        fake = FakeStdout()
+        with patch.object(sys, 'stdout', fake):
+            with mod._alt_screen() as active:
+                assert active is True
+        assert fake.buf == "\x1b[?1049h\x1b[?1049l"
+
+    def test_dumb_term_is_silent(self, capsys):
+        import scraper_common as mod
+
+        class FakeStdout:
+            def isatty(self):
+                return True
+
+            def write(self, s):
+                raise AssertionError("must not write")
+
+            def flush(self):
+                pass
+
+        with patch.object(sys, 'stdout', FakeStdout()), \
+             patch.dict(os.environ, {"TERM": "dumb"}):
+            with mod._alt_screen() as active:
+                assert active is False
+
+    def test_choice_name(self):
+        import scraper_common as mod
+        choices = [{"name": "L1T2 — Foo", "value": "Title Foo"}, "plain"]
+        assert mod._choice_name(choices, "Title Foo") == "L1T2 — Foo"
+        assert mod._choice_name(choices, "plain") == "plain"
+        assert mod._choice_name(choices, None) is None
+        assert mod._choice_name(choices, "missing") == "missing"
+
+    def test_list_echoes_answer(self, capsys):
+        import InquirerPy
+        with patch.object(InquirerPy, 'prompt', return_value={"choice": "b"}):
+            assert _prompt_list("Pick?", [{"name": "Bee", "value": "b"}]) == "b"
+        assert "? Pick? → Bee" in capsys.readouterr().out
+
+    def test_back_echoes(self, capsys):
+        import InquirerPy
+        with patch.object(InquirerPy, 'prompt', return_value={"choice": None}):
+            assert _prompt_list("Pick?", ["a"]) is None
+        assert "(back)" in capsys.readouterr().out
