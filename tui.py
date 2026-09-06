@@ -635,9 +635,8 @@ class UpdateScreen(MenuScreen):
             return
         new_entries, _ = result
         targets = S.load_targets()
-        session = targets.get('session', '')
         self._candidates = [e for e in sorted(new_entries, key=lambda e: e['id'])
-                            if S._suggestable(e, session)]
+                            if S._suggestable(e, targets)]
         skipped = len(new_entries) - len(self._candidates)
         box = self.query_one("#picks", Vertical)
         if not self._candidates:

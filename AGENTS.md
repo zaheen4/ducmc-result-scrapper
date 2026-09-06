@@ -97,6 +97,7 @@ Scraped reg numbers saved to per-exam progress files, scoped by `(sheet_url, wor
 ## Exam Codes & Batch (`data/targets.json`)
 
 - `data/targets.json` (tracked) maps slot codes → titles for this batch: 6 normals (`L1T1`–`L3T2`), retake slots hold yearly lists
+- Batch rule (13/13 on the 2021-2022 full-range census): a retake belongs iff its exam year is strictly after the slot's normal exam year — `_suggestable()` enforces it for updater suggestions
 - `resolve_exam_code()` in `scraper_common.py`: `L1T2` → single title; `L1T2R` → unique or `ExamCodeError` with `L1T2R-YYYY` options; `L1T2R-2024` → one year; missing slots fall back to `exam_catalog.json` search
 - `run_batch()` runs every targets exam for the mode sequentially (per-exam progress, resumable); `--all` flag; TUI batch view calls per-target engine runs with the same semantics
 - TUI's breadth screen prints short-code one-liners for multi-terminal runs

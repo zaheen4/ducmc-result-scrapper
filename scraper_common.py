@@ -568,17 +568,33 @@ def save_targets(targets):
         f.write('\n')
 
 
-def _suggestable(entry, targets_session):
-    """Whether a new catalog entry is worth offering for this batch's targets."""
-    lowered = entry['name'].lower()
+def _suggestable(entry, targets):
+    """Whether a new catalog entry belongs in this batch's targets.
+
+    Rule (13/13 on the 2021-2022 census): a retake belongs iff its exam
+    year is strictly after the slot's normal exam year. Older/special
+    papers belong to other batches.
+    """
+    targets = targets or {}
+    session = targets.get('session', '')
+    name = entry.get('name', '')
+    lowered = name.lower()
     if 'special' in lowered:
         return False
     if 'old syllabus' in lowered or 'old curriculum' in lowered:
         return False
-    session_mark = re.search(r'\((\d{4}-\d{4})\)', entry['name'])
-    if session_mark and targets_session and session_mark.group(1) != targets_session:
+    session_mark = re.search(r'\((\d{4}-\d{4})\)', name)
+    if session_mark and session and session_mark.group(1) != session:
         return False
-    return True
+    year, term = entry.get('year') or 0, entry.get('term') or 0
+    if not year or not term:
+        return False
+    if entry.get('type') != 'retake':
+        return True
+    slot = f"L{year}T{term}"
+    normal_year = _exam_year_of((targets.get('normal', {}) or {}).get(slot, ''))
+    entry_year = _exam_year_of(name)
+    return bool(normal_year and entry_year and entry_year > normal_year)
 
 
 def _batch_update_with_retry(worksheet, requests, value_input_option='RAW', max_retries=5):

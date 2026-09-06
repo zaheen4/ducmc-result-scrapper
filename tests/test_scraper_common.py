@@ -1584,11 +1584,47 @@ class TestRefreshCatalog:
 
 
 class TestSuggestable:
+    TARGETS = {
+        "session": "2021-2022",
+        "normal": {"L1T2": "B.Sc. X 1st year 2nd Semester Examination of 2022",
+                   "L3T2": "B.Sc. X 3rd year 2nd Semester Examination of 2024"},
+        "retake": {},
+    }
+
+    def _entry(self, name, type_, year, term):
+        return {"id": 1, "name": name, "type": type_, "year": year, "term": term}
+
     def test_filters(self):
-        assert _suggestable({"name": "B.Sc. X 2nd year 2nd Semester Special Improvement Examination of 2023 (Special Improvement)"}, "2021-2022") is False
-        assert _suggestable({"name": "B.Sc. X 4th year 1st Semester Examination of 2024 (2020-2021)"}, "2021-2022") is False
-        assert _suggestable({"name": "B.Sc. X 2nd year 2nd Semester Retake/Improvement Examination of 2022 (Retake/Improvement - Old Curriculum)"}, "2021-2022") is False
-        assert _suggestable({"name": "B.Sc. X 3rd year 2nd Semester Examination of 2024"}, "2021-2022") is True
+        assert _suggestable(self._entry(
+            "B.Sc. X 2nd year 2nd Semester Special Improvement Examination of 2023 (Special Improvement)",
+            "retake", 2, 2), self.TARGETS) is False
+        assert _suggestable(self._entry(
+            "B.Sc. X 4th year 1st Semester Examination of 2024 (2020-2021)",
+            "normal", 4, 1), self.TARGETS) is False
+        assert _suggestable(self._entry(
+            "B.Sc. X 2nd year 2nd Semester Retake/Improvement Examination of 2022 (Retake/Improvement - Old Curriculum)",
+            "retake", 2, 2), self.TARGETS) is False
+
+    def test_retake_year_rule(self):
+        newer = self._entry(
+            "B.Sc. X 1st year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)",
+            "retake", 1, 2)
+        same_year = self._entry(
+            "B.Sc. X 3rd year 2nd Semester Improvement Examination of 2024 (Retake/Improvement)",
+            "retake", 3, 2)
+        assert _suggestable(newer, self.TARGETS) is True
+        assert _suggestable(same_year, self.TARGETS) is False
+
+    def test_normal_slot_suggestable(self):
+        assert _suggestable(self._entry(
+            "B.Sc. X 3rd year 2nd Semester Examination of 2024",
+            "normal", 3, 2), self.TARGETS) is True
+
+    def test_unparseable_or_missing_normal(self):
+        assert _suggestable(self._entry("Some title", "retake", 0, 0), self.TARGETS) is False
+        assert _suggestable(self._entry(
+            "B.Sc. X 4th year 1st Semester Improvement Examination of 2024 (Retake/Improvement)",
+            "retake", 4, 1), self.TARGETS) is False
 
 
 class TestProgressCallback:
