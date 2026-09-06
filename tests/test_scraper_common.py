@@ -50,6 +50,8 @@ from scraper_common import (  # noqa: E402
     run_batch,
     ExamCodeError,
     _parse_range,
+    _parse_regs,
+    _reg_targets,
     _short_label,
     _sync_globals_from_config,
     _ensure_sheet_configured,
@@ -1363,6 +1365,52 @@ class TestMenuHelpers:
             _parse_range("813-710", 710, 813)
 
 
+class TestParseRegs:
+    def test_range_expands(self):
+        assert _parse_regs("710-712", 1, 2) == [710, 711, 712]
+
+    def test_single(self):
+        assert _parse_regs("810", 1, 2) == [810]
+
+    def test_csv(self):
+        assert _parse_regs("710, 715, 720", 1, 2) == [710, 715, 720]
+
+    def test_mixed_dedupes_sorts(self):
+        assert _parse_regs("720,710-712,711", 1, 2) == [710, 711, 712, 720]
+
+    def test_empty_returns_none(self):
+        assert _parse_regs("", 710, 813) is None
+        assert _parse_regs("   ", 710, 813) is None
+
+    def test_garbage(self):
+        with pytest.raises(ValueError):
+            _parse_regs("abc", 710, 813)
+        with pytest.raises(ValueError):
+            _parse_regs("710-", 710, 813)
+        with pytest.raises(ValueError):
+            _parse_regs("710,,712", 710, 813)
+        with pytest.raises(ValueError):
+            _parse_regs("813-710", 710, 813)
+
+
+class TestRegTargets:
+    def test_range_style_label(self):
+        targets, label = _reg_targets(None, None, 710, 813)
+        assert targets == list(range(710, 814))
+        assert label == "reg 710–813"
+
+    def test_single(self):
+        assert _reg_targets([810], None, 1, 2) == ([810], "reg 810")
+
+    def test_sparse_label(self):
+        targets, label = _reg_targets([710, 720], None, 1, 2)
+        assert targets == [710, 720]
+        assert label == "2 regs: 710, 720"
+
+    def test_empty(self):
+        assert _reg_targets([], None, 1, 2) == ([], "0 regs: ")
+
+
 class TestSyncGlobals:
     def _sync_with(self, config):
         with patch('scraper_common.CONFIG', config), \
@@ -1568,4 +1616,25 @@ class TestProgressCallback:
              patch('scraper_common.format_gpa_cgpa_columns'):
             stats = main(dry_run=True, on_event=events.append)
         assert events == ["ok", "fail"]
+        assert stats["scraped"] == 1 and stats["failed"] == 1
+
+    def test_main_regs_list_only_touches_listed(self, tmp_path):
+        seen = []
+        parsed = {'Name': 'T', 'Roll': 'R', 'Reg': '710', 'GPA': '3.0',
+                  'CGPA': '3.0', 'Fail Subs': '', 'courses': []}
+
+        def fake_scrape(driver, reg):
+            seen.append(reg)
+            return parsed if reg == '710' else None
+
+        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.START_REGI', 710), \
+             patch('scraper_common.END_REGI', 813), \
+             patch('scraper_common.REQUEST_DELAY', 0), \
+             patch('scraper_common.get_worksheet', return_value=self._ws()), \
+             patch('scraper_common.initialize_webdriver', return_value=MagicMock()), \
+             patch('scraper_common.scrape_student_result', side_effect=fake_scrape), \
+             patch('scraper_common.format_gpa_cgpa_columns'):
+            stats = main(dry_run=True, regs=[710, 712])
+        assert seen == ['710', '712']
         assert stats["scraped"] == 1 and stats["failed"] == 1

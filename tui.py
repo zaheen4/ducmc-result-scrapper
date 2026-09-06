@@ -124,18 +124,19 @@ class LabeledList(ListView):
         super().__init__(**kwargs)
         self._rows = list(rows)
 
-    def refill(self, rows):
+    async def refill(self, rows):
+        """Replaces rows (awaited removal — rapid refills can't duplicate)."""
         self._rows = list(rows)
-        self.clear()
-        self.extend(ListItem(Label(label)) for _, label in self._rows)
+        await self.remove_children()
+        await self.mount_all(ListItem(Label(label)) for _, label in self._rows)
 
     def selected_key(self):
         if self.index is None or not self._rows:
             return None
         return self._rows[self.index][0]
 
-    def on_mount(self):
-        self.refill(self._rows)
+    async def on_mount(self):
+        await self.refill(self._rows)
 
 
 class TaskScreen(MenuScreen):
@@ -231,7 +232,7 @@ class ExamScreen(MenuScreen):
     """Fuzzy exam picker (/ focuses the filter)."""
 
     BINDINGS = MenuScreen.BINDINGS + [
-        Binding("slash", "focus_filter", "Filter", show=True),
+        Binding("/", "focus_filter", "Filter", show=True),
     ]
 
     def __init__(self, kind):
@@ -250,7 +251,7 @@ class ExamScreen(MenuScreen):
             yield Static("", classes="detail", id="examinfo")
         yield Footer()
 
-    def on_mount(self):
+    async def on_mount(self):
         section = S.load_targets().get('retake' if self._retake else 'normal', {})
         rows = []
         for slot, value in section.items():
@@ -261,9 +262,8 @@ class ExamScreen(MenuScreen):
                     code += f"-{S._exam_year_of(title)}"
                 rows.append((title, f"{code} — {S._short_label(title)}"))
         rows.append(("", "Other exam code… (e.g. L4T1, L1T2R-2022)"))
-        rows.append(("", "Other exam code… (e.g. L4T1, L1T2R-2022)"))
         self._all_rows = rows
-        self.query_one(LabeledList).refill(rows)
+        await self.query_one(LabeledList).refill(rows)
         self.query_one(ListView).focus()
 
     def action_focus_filter(self):
@@ -276,10 +276,10 @@ class ExamScreen(MenuScreen):
             self.app.pop_screen()
 
     @on(Input.Changed)
-    def refilter(self, event):
+    async def refilter(self, event):
         needle = event.value.strip().lower()
         rows = [(k, label) for k, label in self._all_rows if needle in label.lower()]
-        self.query_one(LabeledList).refill(rows)
+        await self.query_one(LabeledList).refill(rows)
 
     @on(ListView.Highlighted)
     def show_detail(self, event):
@@ -356,7 +356,7 @@ class OptionsScreen(MenuScreen):
         yield Header()
         label = S._short_label(self._title) if self._title else "everything pending"
         yield Static(f"Run: {label}")
-        yield Label("Reg range (e.g. 710-813 or 810):")
+        yield Label("Regs (e.g. 710-813, 710,715 or 710-713,720):")
         yield Input(value=f"{S.CONFIG.get('start_regi')}-{S.CONFIG.get('end_regi')}", id="range")
         yield Checkbox("Dry run (no sheet writes)", id="dry")
         yield Checkbox("Start fresh (ignore saved progress)", id="fresh")
@@ -372,7 +372,7 @@ class OptionsScreen(MenuScreen):
 
     def _launch(self):
         try:
-            start, end = S._parse_range(
+            regs = S._parse_regs(
                 self.query_one("#range", Input).value,
                 S.CONFIG.get('start_regi'), S.CONFIG.get('end_regi'))
         except ValueError as e:
@@ -380,11 +380,20 @@ class OptionsScreen(MenuScreen):
             return
         dry = self.query_one("#dry", Checkbox).value
         fresh = self.query_one("#fresh", Checkbox).value if not dry else False
+        if regs is None:
+            start, end = S.CONFIG.get('start_regi'), S.CONFIG.get('end_regi')
+            reg_num, regs_arg = None, None
+        elif len(regs) == 1:
+            start = end = reg_num = regs[0]
+            regs_arg = None
+        else:
+            start, end, reg_num, regs_arg = regs[0], regs[-1], None, regs
         S.CONFIG["start_regi"] = start
         S.CONFIG["end_regi"] = end
         S.START_REGI = start
         S.END_REGI = end
-        self.app.push_screen(RunScreen(self._kind, self._title, start, end, dry, fresh))
+        self.app.push_screen(RunScreen(self._kind, self._title, start, end, dry, fresh,
+                                       reg_num=reg_num, regs=regs_arg))
 
 
 class RunScreen(Screen):
@@ -397,7 +406,7 @@ class RunScreen(Screen):
         Binding("q", "back", "Quit", show=False),
     ]
 
-    def __init__(self, kind, title, start, end, dry_run, fresh):
+    def __init__(self, kind, title, start, end, dry_run, fresh, reg_num=None, regs=None):
         super().__init__()
         self._kind = kind
         self._title = title
@@ -405,6 +414,8 @@ class RunScreen(Screen):
         self._end = end
         self._dry = dry_run
         self._fresh = fresh
+        self._reg_num = reg_num
+        self._regs = regs
         self._q = queue.Queue()
         self._counts = {"ok": 0, "skip": 0, "fail": 0}
         self._done = False
@@ -412,11 +423,12 @@ class RunScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         label = S._short_label(self._title) if self._title else "everything pending"
+        total = len(self._regs) if self._regs else self._end - self._start + 1
         with Vertical(id="runpanel"):
-            yield Static(f"Running: {label} ({self._start}–{self._end})"
+            yield Static(f"Running: {label} ({total} regs)"
                          + (" [dry run]" if self._dry else ""))
             if self._title is not None:
-                yield ProgressBar(total=self._end - self._start + 1, id="bar")
+                yield ProgressBar(total=total, id="bar")
             yield Static("", id="counters")
         yield Log(id="log", highlight=False)
         yield Footer()
@@ -445,11 +457,11 @@ class RunScreen(Screen):
                             S.save_progress([])
                     if self._kind == "retake":
                         S.scrape_retake_results(dry_run=self._dry,
-                                                reg_num=self._start if self._start == self._end else None,
+                                                reg_num=self._reg_num, regs=self._regs,
                                                 on_event=self._emit)
                     else:
                         S.main(dry_run=self._dry,
-                               reg_num=self._start if self._start == self._end else None,
+                               reg_num=self._reg_num, regs=self._regs,
                                on_event=self._emit)
                 else:
                     self._run_batch()

@@ -93,7 +93,7 @@ async def test_update_screen_no_new_exams():
 async def test_run_screen_live_counters():
     from textual.widgets import Static
 
-    def fake_main(dry_run=False, reg_num=None, on_event=None):
+    def fake_main(dry_run=False, reg_num=None, regs=None, on_event=None):
         on_event("ok")
         on_event("fail")
         return {"scraped": 1, "skipped": 0, "failed": 1}
@@ -200,3 +200,49 @@ async def test_settings_rejects_bad_theme():
             await pilot.pause()
             mock_save.assert_not_called()
             assert type(app.screen).__name__ == "SettingsScreen"
+
+
+async def test_options_list_handoff():
+    from textual.widgets import Checkbox, Input
+    app = ScraperApp()
+    async with app.run_test() as pilot:
+        with patch.object(tui.S, 'load_targets', return_value=_targets()):
+            await app.push_screen(tui.OptionsScreen("normal", "Normal L1T2 Examination of 2022"))
+            await pilot.pause()
+            app.screen.query_one("#range", Input).value = "710,712"
+            app.screen.query_one("#dry", Checkbox).value = True
+            app.screen._launch()
+            await pilot.pause()
+            assert type(app.screen).__name__ == "RunScreen"
+            run = app.screen
+            assert run._regs == [710, 712]
+            assert (run._start, run._end) == (710, 712)
+
+
+async def test_options_bad_list_stays():
+    from textual.widgets import Input
+    app = ScraperApp()
+    async with app.run_test() as pilot:
+        with patch.object(tui.S, 'load_targets', return_value=_targets()):
+            await app.push_screen(tui.OptionsScreen("normal", "Normal L1T2 Examination of 2022"))
+            await pilot.pause()
+            app.screen.query_one("#range", Input).value = "710,,712"
+            app.screen._launch()
+            await pilot.pause()
+            assert type(app.screen).__name__ == "OptionsScreen"
+
+
+async def test_refilter_no_duplicate_rows():
+    from textual.widgets import ListItem
+    from tui import LabeledList
+    app = ScraperApp()
+    async with app.run_test() as pilot:
+        with patch.object(tui.S, 'load_targets', return_value=_targets()):
+            await app.push_screen(tui.ExamScreen("normal"))
+            await pilot.pause()
+            await pilot.press("slash")
+            for ch in "l1t2":
+                await pilot.press(ch)
+            await pilot.pause(0.5)
+            view = app.screen.query_one(LabeledList)
+            assert len(view.query(ListItem)) == len(view._rows)

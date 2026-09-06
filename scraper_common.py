@@ -426,7 +426,7 @@ def _set_target_context(title, retake):
             WORKSHEET_NAME = resolved  # pyright: ignore[reportConstantRedefinition]
 
 
-def run_batch(retake=False, dry_run=False, reg_num=None, fresh=False, log=False):
+def run_batch(retake=False, dry_run=False, reg_num=None, regs=None, fresh=False, log=False):
     """Runs every targets.json exam for the mode, sequentially."""
     global CONFIG
     targets = load_targets()
@@ -459,10 +459,10 @@ def run_batch(retake=False, dry_run=False, reg_num=None, fresh=False, log=False)
                     save_progress([])
                 ts("[INFO] Progress cleared — starting fresh.")
             if retake:
-                stats = scrape_retake_results(dry_run=dry_run, reg_num=reg_num)
+                stats = scrape_retake_results(dry_run=dry_run, reg_num=reg_num, regs=regs)
                 totals["ok"] += stats["updated"] + stats["unchanged"]
             else:
-                stats = main(dry_run=dry_run, reg_num=reg_num)
+                stats = main(dry_run=dry_run, reg_num=reg_num, regs=regs)
                 totals["ok"] += stats["scraped"]
             totals["skipped"] += stats["skipped"]
             totals["failed"] += stats["failed"]
@@ -1461,20 +1461,22 @@ def _get_retake_progress_file():
     return os.path.join(DATA_DIR, 'progress_retake.json')
 
 
-def scrape_retake_results(dry_run=False, reg_num=None, on_event=None):
+def scrape_retake_results(dry_run=False, reg_num=None, regs=None, on_event=None):
     """Main retake scraping loop.
 
     Fetches retake/improvement results and updates PerCourse sheets with
     improved grades. Uses separate progress tracking from normal mode.
+    regs is an explicit reg list (takes precedence over reg_num/range).
     on_event(kind) is called per student with 'skip', 'ok', or 'fail'.
     Returns the stats dict.
     """
     start_time = time.time()
+    stats = {"updated": 0, "unchanged": 0, "skipped": 0, "failed": 0}
 
     retake_exam = CONFIG.get('retake_exam', '')
     if not retake_exam:
         ts("ERROR: No retake exam configured. Run with --list-exams --retake to select one.")
-        return
+        return stats
 
     if reg_num:
         start_regi = reg_num
@@ -1490,11 +1492,16 @@ def scrape_retake_results(dry_run=False, reg_num=None, on_event=None):
     ts(f"--- Retake Exam: \"{retake_exam}\" ---")
 
     scraped_list = _load_retake_progress()
-    total = end_regi - start_regi + 1
-    already_done = len([r for r in scraped_list if start_regi <= int(r) <= end_regi])
+    targets, label = _reg_targets(regs, reg_num, start_regi, end_regi)
+    if not targets:
+        ts("[INFO] No reg numbers to scrape.")
+        return stats
+    total = len(targets)
+    in_targets = set(targets)
+    already_done = len([r for r in scraped_list if str(r).isdigit() and int(r) in in_targets])
     remaining = total - already_done
 
-    ts(f"\n--- Will scrape reg {start_regi}–{end_regi} ({total} students, {remaining} remaining) ---")
+    ts(f"\n--- Will scrape {label} ({total} students, {remaining} remaining) ---")
     if not dry_run:
         ts("--- Press Ctrl+C to cancel ---\n")
 
@@ -1512,7 +1519,7 @@ def scrape_retake_results(dry_run=False, reg_num=None, on_event=None):
     interrupted = False
 
     try:
-        for regi_num in range(start_regi, end_regi + 1):
+        for i, regi_num in enumerate(targets):
             reg_str = str(regi_num)
 
             if reg_str in scraped_list:
@@ -1596,7 +1603,7 @@ def scrape_retake_results(dry_run=False, reg_num=None, on_event=None):
                             scraped_list.append(reg_str)
                             if not dry_run:
                                 _save_retake_progress(scraped_list)
-                            if REQUEST_DELAY > 0 and regi_num < end_regi:
+                            if REQUEST_DELAY > 0 and i < total - 1:
                                 time.sleep(REQUEST_DELAY)
                             continue
 
@@ -1635,7 +1642,7 @@ def scrape_retake_results(dry_run=False, reg_num=None, on_event=None):
                 if on_event:
                     on_event("fail")
 
-            if REQUEST_DELAY > 0 and regi_num < end_regi:
+            if REQUEST_DELAY > 0 and i < total - 1:
                 time.sleep(REQUEST_DELAY)
 
     except KeyboardInterrupt:
@@ -1665,13 +1672,15 @@ def scrape_retake_results(dry_run=False, reg_num=None, on_event=None):
     return stats
 
 
-def main(dry_run=False, reg_num=None, on_event=None):
+def main(dry_run=False, reg_num=None, regs=None, on_event=None):
     """Main execution function to run the scraper and update the sheet.
 
+    regs is an explicit reg list (takes precedence over reg_num/range).
     on_event(kind) is called per student with 'skip', 'ok', or 'fail'
     (for live progress displays). Returns the stats dict.
     """
     start_time = time.time()
+    stats = {"scraped": 0, "skipped": 0, "failed": 0}
 
     if reg_num:
         start_regi = reg_num
@@ -1679,6 +1688,11 @@ def main(dry_run=False, reg_num=None, on_event=None):
     else:
         start_regi = START_REGI
         end_regi = END_REGI
+
+    targets, label = _reg_targets(regs, reg_num, start_regi, end_regi)
+    if not targets:
+        ts("[INFO] No reg numbers to scrape.")
+        return stats
 
     if dry_run:
         ts("[DRY RUN] Scraping without writing to sheet.")
@@ -1692,11 +1706,12 @@ def main(dry_run=False, reg_num=None, on_event=None):
         return
 
     scraped_list = load_progress()
-    total = end_regi - start_regi + 1
-    already_done = len([r for r in scraped_list if start_regi <= int(r) <= end_regi])
+    total = len(targets)
+    in_targets = set(targets)
+    already_done = len([r for r in scraped_list if str(r).isdigit() and int(r) in in_targets])
     remaining = total - already_done
 
-    ts(f"\n--- Will scrape reg {start_regi}–{end_regi} ({total} students, {remaining} remaining) ---")
+    ts(f"\n--- Will scrape {label} ({total} students, {remaining} remaining) ---")
     ts(f"--- Sheet: '{WORKSHEET_NAME}' ---")
     if not dry_run:
         ts("--- Press Ctrl+C to cancel ---\n")
@@ -1708,7 +1723,7 @@ def main(dry_run=False, reg_num=None, on_event=None):
     interrupted = False
 
     try:
-        for regi_num in range(start_regi, end_regi + 1):
+        for i, regi_num in enumerate(targets):
             reg_str = str(regi_num)
 
             if reg_str in scraped_list:
@@ -1745,7 +1760,7 @@ def main(dry_run=False, reg_num=None, on_event=None):
                 if on_event:
                     on_event("fail")
 
-            if REQUEST_DELAY > 0 and regi_num < end_regi:
+            if REQUEST_DELAY > 0 and i < total - 1:
                 time.sleep(REQUEST_DELAY)
     except KeyboardInterrupt:
         interrupted = True
@@ -1935,6 +1950,53 @@ def _parse_range(text, default_start, default_end):
     if not text:
         return default_start, default_end
     raise ValueError(f"Could not parse range '{text}' (e.g. 710-813).")
+
+
+def _parse_regs(text, default_start, default_end):
+    """Parses reg input into a sorted unique reg list.
+
+    Accepts '710-813', '810', '710,715,720' and mixed '710-713,720,725-730'.
+    Empty input returns None (caller falls back to the default range).
+    Raises ValueError on garbage.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+    regs = []
+    for part in text.split(","):
+        part = part.strip()
+        match = re.fullmatch(r'(\d+)\s*-\s*(\d+)', part) if part else None
+        if match:
+            start, end = int(match.group(1)), int(match.group(2))
+            if start > end:
+                raise ValueError(f"Start {start} is after end {end}.")
+            regs.extend(range(start, end + 1))
+        elif part.isdigit():
+            regs.append(int(part))
+        else:
+            raise ValueError(f"Could not parse '{part}' (e.g. 710-813 or 710,715,720).")
+    return sorted(set(regs))
+
+
+def _reg_targets(regs, reg_num, start_regi, end_regi):
+    """Resolves a scrape loop's reg list + display label.
+
+    A contiguous list renders exactly like the legacy range output.
+    """
+    if regs is not None:
+        targets = sorted(set(regs))
+    elif reg_num:
+        targets = [reg_num]
+    else:
+        targets = list(range(start_regi, end_regi + 1))
+    if len(targets) > 1 and targets == list(range(targets[0], targets[-1] + 1)):
+        label = f"reg {targets[0]}–{targets[-1]}"
+    elif len(targets) == 1:
+        label = f"reg {targets[0]}"
+    else:
+        shown = ", ".join(str(r) for r in targets[:10])
+        label = f"{len(targets)} regs: {shown}{'...' if len(targets) > 10 else ''}"
+    return targets, label
 
 
 def _ensure_sheet_configured():
