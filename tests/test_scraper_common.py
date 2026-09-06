@@ -1768,7 +1768,9 @@ class TestPromptHelpers:
             bindings = mock_prompt.call_args[1]["keybindings"]
             assert {"key": "l"} in bindings["answer"]
             assert {"key": "enter"} in bindings["answer"]
+            assert {"key": "right"} in bindings["answer"]
             assert {"key": "h"} in bindings["skip"]
+            assert {"key": "left"} in bindings["skip"]
             assert {"key": "escape"} in bindings["skip"]
 
     def test_fuzzy_back_binding(self):

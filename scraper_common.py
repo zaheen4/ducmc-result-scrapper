@@ -2041,13 +2041,14 @@ def _sync_globals_from_config():
 
 BACK = "← Back"
 
-NAV_HINT = " (j/k navigate · l/Enter select · h/Esc back)"
+NAV_HINT = " (←→↑↓ hjkl · Enter select · h back)"
 
 # Extra keys merged onto InquirerPy's builtin list actions (Yazi-style motion).
-# Custom entries replace the builtin key list per action, so Enter is re-specified.
+# Custom entries replace the builtin key list per action, so defaults are
+# re-specified. Arrows only on list prompts — fuzzy/input keep cursor motion.
 LIST_NAV_KEYS = {
-    "answer": [{"key": "enter"}, {"key": "l"}],
-    "skip": [{"key": "h"}, {"key": "escape"}],
+    "answer": [{"key": "enter"}, {"key": "l"}, {"key": "right"}],
+    "skip": [{"key": "h"}, {"key": "left"}, {"key": "escape"}],
 }
 
 

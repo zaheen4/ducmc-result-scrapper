@@ -29,8 +29,8 @@ python result_scrapper.py
 # Breadth: Single semester | Everything pending | multi-terminal commands
 # | Settings (edits saved config: sheet, session, range, delay)
 # | Update exam data (portal → exam_catalog.json, suggest targets.json adds)
-# Menu loops until Exit; ← Back navigates up; j/k + l/Enter, h/Esc for motion;
-# exam picker is fuzzy (type to filter)
+# Menu loops until Exit; ← Back navigates up; arrows/hjkl + l/Enter, h/Esc for motion
+# (Esc lags ~0.5s from terminal ambiguity — h is instant); exam picker is fuzzy
 
 # Short codes skip the menu: L1T2 normal, L1T2R retake, L1T2R-2024 one year
 python result_scrapper.py --exam L3T2
