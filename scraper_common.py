@@ -428,7 +428,7 @@ def _set_target_context(title, retake):
 
 def run_batch(retake=False, dry_run=False, reg_num=None, regs=None, fresh=False, log=False):
     """Runs every targets.json exam for the mode, sequentially."""
-    global CONFIG
+    global CONFIG, LOG_FILE
     targets = load_targets()
     section = targets.get('retake' if retake else 'normal', {})
     items = [(slot, t) for slot, v in section.items() for t in (v if isinstance(v, list) else [v])]
@@ -469,6 +469,7 @@ def run_batch(retake=False, dry_run=False, reg_num=None, regs=None, fresh=False,
     finally:
         if LOG_FILE:
             LOG_FILE.close()
+            LOG_FILE = None
     ts(f"\n--- Batch complete: ok={totals['ok']} skipped={totals['skipped']} failed={totals['failed']} ---")
     return totals
 
@@ -2167,3 +2168,4 @@ def run():
         finally:
             if LOG_FILE:
                 LOG_FILE.close()
+                LOG_FILE = None

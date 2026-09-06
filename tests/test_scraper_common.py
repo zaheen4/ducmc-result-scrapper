@@ -1638,3 +1638,20 @@ class TestProgressCallback:
             stats = main(dry_run=True, regs=[710, 712])
         assert seen == ['710', '712']
         assert stats["scraped"] == 1 and stats["failed"] == 1
+
+
+class TestBatchLogFile:
+    def test_batch_with_log_completes_and_releases_file(self, tmp_path):
+        targets = {"normal": {"L1T2": "Normal L1T2 Examination of 2022"}, "retake": {}}
+        with patch('scraper_common.load_targets', return_value=targets), \
+             patch('scraper_common.CONFIG', {"google_sheet_url": "http://x"}), \
+             patch('scraper_common.FORM_DATA', {"program": "p", "session": "s", "exam": ""}), \
+             patch('scraper_common.DATA_DIR', str(tmp_path)), \
+             patch('scraper_common.LOG_FILE', None), \
+             patch('scraper_common._auto_resolve_worksheet', return_value=None), \
+             patch('scraper_common.main',
+                   return_value={"scraped": 1, "skipped": 0, "failed": 0}):
+            totals = run_batch(retake=False, log=True)
+        assert totals == {"ok": 1, "skipped": 0, "failed": 0}
+        assert scraper_common.LOG_FILE is None
+        assert list((tmp_path / "logs").glob("scraper_*.log")) != []
