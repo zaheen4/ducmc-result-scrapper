@@ -25,10 +25,12 @@ colab_scrapper.py   ─┘
 # Local — requires Firefox + geckodriver. No args opens the interactive menu.
 python result_scrapper.py
 
-# Menu scopes: Single semester | Everything pending | multi-terminal commands
+# Menu tasks: Scrape normal/retake | Update exam data | Settings | Exit
+# Breadth: Single semester | Everything pending | multi-terminal commands
 # | Settings (edits saved config: sheet, session, range, delay)
 # | Update exam data (portal → exam_catalog.json, suggest targets.json adds)
-# Menu loops until Exit; ← Back navigates up; j/k + Enter (vi_mode); exam picker is fuzzy
+# Menu loops until Exit; ← Back navigates up; j/k + l/Enter, h/Esc for motion;
+# exam picker is fuzzy (type to filter)
 
 # Short codes skip the menu: L1T2 normal, L1T2R retake, L1T2R-2024 one year
 python result_scrapper.py --exam L3T2

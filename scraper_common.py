@@ -1907,16 +1907,21 @@ def _short_label(title):
 
 def _prompt_list(message, choices):
     from InquirerPy import prompt as _prompt
-    answers = _prompt([{"type": "list", "name": "choice", "message": message, "choices": choices}],
-                      vi_mode=True)
-    return answers["choice"]
+    answers = _prompt([{"type": "list", "name": "choice", "message": message,
+                        "choices": choices, "mandatory": False}],
+                      vi_mode=True, keybindings=LIST_NAV_KEYS)
+    return answers["choice"]  # None means backed out
 
 
-def _prompt_fuzzy(message, choices):
+def _prompt_fuzzy(message, choices, allow_back=False):
     """Filter-as-you-type picker (Yazi-find style) for longer choice lists."""
     from InquirerPy import prompt as _prompt
-    answers = _prompt([{"type": "fuzzy", "name": "choice", "message": message, "choices": choices}],
-                      vi_mode=True)
+    question = {"type": "fuzzy", "name": "choice", "message": message, "choices": choices}
+    keybindings = None
+    if allow_back:
+        question["mandatory"] = False
+        keybindings = {"skip": [{"key": "escape"}]}
+    answers = _prompt([question], vi_mode=True, keybindings=keybindings)
     return answers["choice"]
 
 
@@ -2001,14 +2006,14 @@ def _menu_pick_single(section, retake, crumbs=""):
             if len(titles) > 1:
                 code += f"-{_exam_year_of(title)}"
             choices.append({"name": f"{code} — {_short_label(title)}", "value": title})
-    choices.append({"name": "Other exam code… (e.g. L4T1, L1T2R-2022)", "value": None})
+    choices.append({"name": "Other exam code… (e.g. L4T1, L1T2R-2022)", "value": ""})
     choices.append({"name": BACK, "value": BACK})
     if crumbs:
         ts(f"--- {crumbs} ---")
-    picked = _prompt_fuzzy("Which semester? (type to filter)" + NAV_HINT, choices)
-    if picked == BACK:
+    picked = _prompt_fuzzy("Which semester? (type to filter)" + NAV_HINT, choices, allow_back=True)
+    if picked == BACK or picked is None:
         return BACK
-    if picked is not None:
+    if picked:
         return picked
     while True:
         code = _prompt_input("Exam code")
@@ -2036,39 +2041,62 @@ def _sync_globals_from_config():
 
 BACK = "← Back"
 
-NAV_HINT = " (j/k navigate · Enter select)"
+NAV_HINT = " (j/k navigate · l/Enter select · h/Esc back)"
+
+# Extra keys merged onto InquirerPy's builtin list actions (Yazi-style motion).
+# Custom entries replace the builtin key list per action, so Enter is re-specified.
+LIST_NAV_KEYS = {
+    "answer": [{"key": "enter"}, {"key": "l"}],
+    "skip": [{"key": "h"}, {"key": "escape"}],
+}
 
 
-def interactive_menu():
-    """Looping guided flow: mode -> scope -> exam -> range -> run. Exit quits."""
-    global START_REGI, END_REGI
-    _sync_globals_from_config()
+def _print_menu_header():
+    """Prints the menu banner (re-rendered each loop so Settings edits show)."""
     ts("--- DUCMC Result Scraper ---")
     ts(f"  Sheet:     {CONFIG.get('google_sheet_url') or '(not set)'}")
     ts(f"  Session:   {CONFIG.get('session')}")
     ts(f"  Reg range: {CONFIG.get('start_regi')}–{CONFIG.get('end_regi')}\n")
 
+
+def interactive_menu():
+    """Looping guided flow: task -> breadth -> exam -> range -> run. Exit quits."""
+    global START_REGI, END_REGI
+    _sync_globals_from_config()
+
     while True:
-        mode = _prompt_list("What to scrape?" + NAV_HINT,
-                            ["Normal semester", "Retake / improvement",
-                             "Update exam data", "Exit"])
-        if mode == "Exit":
+        _print_menu_header()
+        task = _prompt_list("What to do?" + NAV_HINT, [
+            "Scrape normal semester",
+            "Scrape retake / improvement",
+            "Update exam data",
+            "Settings (sheet, session, range, delay)",
+            "Exit",
+        ])
+        if task is None or task == "Exit":
             return
-        crumbs = mode
-        if mode == "Update exam data":
+        if task == "Update exam data":
             update_exam_data()
             continue
-        retake = mode.startswith("Retake")
+        if task.startswith("Settings"):
+            try:
+                first_run_setup(CONFIG)
+            except (KeyboardInterrupt, EOFError):
+                ts("\nCancelled.")
+                continue
+            _sync_globals_from_config()
+            ts("✅ Settings saved.")
+            continue
 
-        scope = _prompt_list("Which exams?" + NAV_HINT, [
+        retake = task.startswith("Scrape retake")
+        crumbs = task
+        scope = _prompt_list(f"Which exams? — {crumbs}" + NAV_HINT, [
             "Single semester",
             "Everything pending (targets.json)",
             "Show multi-terminal commands",
-            "Settings (sheet, session, range, delay)",
-            "Update exam data (portal → catalog/targets)",
             BACK,
         ])
-        if scope == BACK:
+        if scope is None or scope == BACK:
             continue
         crumbs += f" › {scope}"
 
@@ -2080,20 +2108,6 @@ def interactive_menu():
                 ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
                 continue
             _print_parallel_commands(section, retake)
-            continue
-
-        if scope.startswith("Settings"):
-            try:
-                first_run_setup(CONFIG)
-            except (KeyboardInterrupt, EOFError):
-                ts("\nCancelled.")
-                continue
-            _sync_globals_from_config()
-            ts("✅ Settings saved.")
-            continue
-
-        if scope.startswith("Update"):
-            update_exam_data()
             continue
 
         if not section:

@@ -51,9 +51,9 @@ Three files, zero duplication:
 
 Just run it — no arguments opens a guided menu that loops until you quit:
 
-- Mode (Normal / Retake / **Update exam data** / Exit) → scope → exam → range → dry-run → fresh
-- `j/k` navigate, arrows work too, `Enter` selects; exam picker filters as you type
-- `← Back` at any level returns up; single runs show resume status and offer a fresh restart
+- Task (scrape normal / retake, update data, settings) → breadth → exam → range → dry-run → fresh
+- `j/k` + arrows navigate, `l`/`Enter` select, `h`/`Esc` go back; exam picker filters as you type
+- Single runs show resume status and offer a fresh restart (skipped on dry runs)
 The menu's `Settings` item edits the saved config (sheet, session, range, delay);
 first run triggers the same setup automatically.
 
