@@ -151,3 +151,52 @@ async def test_code_screen_resolves_and_continues():
             await pilot.press("enter")
             await pilot.pause()
             assert type(app.screen).__name__ == "OptionsScreen"
+
+
+async def test_app_uses_configured_theme():
+    app = ScraperApp()
+    async with app.run_test() as pilot:
+        assert app.theme in ("flexoki-light", "ansi-light", "ansi-dark")
+        assert "flexoki-light" in app._registered_themes
+        await pilot.press("q")
+
+
+async def test_task_about_pane_shows_detail():
+    from textual.widgets import Static
+    app = ScraperApp()
+    async with app.run_test() as pilot:
+        assert "Single exam" in _text(app.screen.query_one("#about", Static))
+        await pilot.press("j")
+        await pilot.pause()
+        assert "GPA" in _text(app.screen.query_one("#about", Static))
+        await pilot.press("q")
+
+
+async def test_exam_detail_pane_shows_progress():
+    from textual.widgets import Static
+    app = ScraperApp()
+    async with app.run_test() as pilot:
+        with patch.object(tui.S, 'load_targets', return_value=_targets()):
+            await pilot.press("l", "l")
+            await pilot.pause()
+            assert type(app.screen).__name__ == "ExamScreen"
+            await pilot.press("j")
+            await pilot.pause()
+            text = _text(app.screen.query_one("#examinfo", Static))
+            assert "Progress:" in text
+            await pilot.press("q", "q", "q")
+
+
+async def test_settings_rejects_bad_theme():
+    from textual.widgets import Input
+    app = ScraperApp()
+    async with app.run_test() as pilot:
+        with patch.object(tui.S, 'save_config') as mock_save, \
+             patch.object(tui.S, 'save_env'):
+            await app.push_screen(tui.SettingsScreen())
+            await pilot.pause()
+            app.screen.query_one("#f-theme", Input).value = "neon"
+            app.screen._save()
+            await pilot.pause()
+            mock_save.assert_not_called()
+            assert type(app.screen).__name__ == "SettingsScreen"

@@ -12,7 +12,7 @@ import threading
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import (
     Checkbox,
@@ -28,6 +28,11 @@ from textual.widgets import (
 )
 
 import scraper_common as S
+from tui_theme import (
+    FLEXOKI_LIGHT,
+    THEME_CHOICES,
+    resolve_theme_name,
+)
 
 
 class QueueWriter:
@@ -46,18 +51,41 @@ class QueueWriter:
         pass
 
 
+def target_progress(title, retake):
+    """Reads a target's progress file: (done_in_range, total). No globals touched."""
+    import hashlib
+    import json
+    import os
+    start, end = S.START_REGI, S.END_REGI
+    total = end - start + 1
+    prefix = "progress_retake_" if retake else "progress_"
+    path = os.path.join(S.DATA_DIR or "", f"{prefix}{hashlib.md5(title.encode()).hexdigest()[:8]}.json")
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return 0, total
+    scraped = data.get("scraped", data) if isinstance(data, dict) else data
+    done = sum(1 for r in scraped
+               if str(r).isdigit() and start <= int(r) <= end)
+    return done, total
+
+
 class MenuScreen(Screen):
     """Base screen: Yazi motion over a ListView. h/Esc/q back out."""
 
     BINDINGS = [
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
-        Binding("l", "select", "Select", show=False),
+        Binding("down", "cursor_down", "Down", show=True),
+        Binding("up", "cursor_up", "Up", show=True),
+        Binding("l", "select", "Select", show=True),
         Binding("right", "select", "Select", show=False),
-        Binding("h", "back", "Back", show=False),
+        Binding("enter", "select", "Select", show=False),
+        Binding("h", "back", "Back", show=True),
         Binding("left", "back", "Back", show=False),
         Binding("escape", "back", "Back", show=False),
-        Binding("q", "back", "Quit", show=False),
+        Binding("q", "back", "Quit", show=True),
     ]
 
     def _list(self):
@@ -111,18 +139,28 @@ class LabeledList(ListView):
 
 
 class TaskScreen(MenuScreen):
-    """Root: pick a task."""
+    """Root: pick a task (right pane explains the highlighted one)."""
+
+    DETAILS = {
+        "normal": "Scrape a normal semester into its PerCourse sheet.\n\nSingle exam or everything pending.",
+        "retake": "Scrape retake/improvement grades.\n\nOnly better-than-existing grades are written; GPA recalculated.",
+        "update": "Refresh the exam catalog from the portal,\nthen pick additions for targets.json.",
+        "settings": "Edit saved config:\nsheet, worksheet, program, session,\nreg range, delay, theme.",
+        "exit": "Quit the scraper.",
+    }
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(id="subtitle")
-        yield LabeledList([
-            ("normal", "Scrape normal semester"),
-            ("retake", "Scrape retake / improvement"),
-            ("update", "Update exam data"),
-            ("settings", "Settings (sheet, session, range, delay)"),
-            ("exit", "Exit"),
-        ], id="menu")
+        with Horizontal(id="taskcols"):
+            yield LabeledList([
+                ("normal", "Scrape normal semester"),
+                ("retake", "Scrape retake / improvement"),
+                ("update", "Update exam data"),
+                ("settings", "Settings"),
+                ("exit", "Exit"),
+            ], id="menu")
+            yield Static("", classes="detail", id="about")
         yield Footer()
 
     def on_mount(self):
@@ -130,6 +168,20 @@ class TaskScreen(MenuScreen):
             f"{S.CONFIG.get('google_sheet_url', '(not set)')} · "
             f"{S.CONFIG.get('session', '')} · "
             f"{S.CONFIG.get('start_regi')}–{S.CONFIG.get('end_regi')}")
+        self._show_about("normal")
+
+    def _show_about(self, key):
+        try:
+            self.query_one("#about", Static).update(self.DETAILS.get(key, ""))
+        except Exception:
+            pass
+
+    @on(ListView.Highlighted)
+    def hover(self, event):
+        idx = event.list_view.index
+        view = self.query_one(LabeledList)
+        if idx is not None and 0 <= idx < len(view._rows):
+            self._show_about(view._rows[idx][0])
 
     @on(ListView.Selected)
     def choose(self):
@@ -190,9 +242,12 @@ class ExamScreen(MenuScreen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("Pick a semester (type to filter)")
-        yield Input(placeholder="filter…", id="filter")
-        yield LabeledList([], id="menu")
+        yield Static("Pick a semester (type to filter, / focuses filter)")
+        with Horizontal(id="examcols"):
+            with Vertical(id="examleft"):
+                yield Input(placeholder="filter…", id="filter")
+                yield LabeledList([], id="menu")
+            yield Static("", classes="detail", id="examinfo")
         yield Footer()
 
     def on_mount(self):
@@ -225,6 +280,22 @@ class ExamScreen(MenuScreen):
         needle = event.value.strip().lower()
         rows = [(k, label) for k, label in self._all_rows if needle in label.lower()]
         self.query_one(LabeledList).refill(rows)
+
+    @on(ListView.Highlighted)
+    def show_detail(self, event):
+        view = self.query_one(LabeledList)
+        idx = event.list_view.index
+        info = self.query_one("#examinfo", Static)
+        if idx is None or not (0 <= idx < len(view._rows)):
+            return
+        title, label = view._rows[idx]
+        if not title:
+            info.update("Enter a short code\n(e.g. L4T1, L1T2R-2022).")
+            return
+        done, total = target_progress(title, self._retake)
+        year = S._exam_year_of(title) or "?"
+        kind = "retake" if self._retake else "normal"
+        info.update(f"{label}\n\nType: {kind}\nYear: {year}\nProgress: {done}/{total} in range")
 
     @on(ListView.Selected)
     def choose(self):
@@ -341,11 +412,12 @@ class RunScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         label = S._short_label(self._title) if self._title else "everything pending"
-        yield Static(f"Running: {label} ({self._start}–{self._end})"
-                     + (" [dry run]" if self._dry else ""))
-        if self._title is not None:
-            yield ProgressBar(total=self._end - self._start + 1, id="bar")
-        yield Static("", id="counters")
+        with Vertical(id="runpanel"):
+            yield Static(f"Running: {label} ({self._start}–{self._end})"
+                         + (" [dry run]" if self._dry else ""))
+            if self._title is not None:
+                yield ProgressBar(total=self._end - self._start + 1, id="bar")
+            yield Static("", id="counters")
         yield Log(id="log", highlight=False)
         yield Footer()
 
@@ -471,6 +543,7 @@ class SettingsScreen(Screen):
         ("start_regi", "Start regi"),
         ("end_regi", "End regi"),
         ("request_delay", "Delay (s)"),
+        ("theme", "Theme (flexoki-light/system/dark)"),
     ]
 
     BINDINGS = [
@@ -505,6 +578,10 @@ class SettingsScreen(Screen):
         except ValueError as e:
             self.app.notify(f"[ERROR] Numbers only: {e}", severity="error")
             return
+        if S.CONFIG.get("theme") not in THEME_CHOICES:
+            self.app.notify(f"[ERROR] Theme must be one of: {', '.join(THEME_CHOICES)}",
+                            severity="error")
+            return
         S.save_config(S.CONFIG)
         S.save_env({
             "GOOGLE_SHEET_URL": S.CONFIG.get("google_sheet_url", ""),
@@ -513,6 +590,7 @@ class SettingsScreen(Screen):
             "SESSION": S.CONFIG.get("session", ""),
         })
         S._sync_globals_from_config()
+        self.app.theme = resolve_theme_name(S.CONFIG.get("theme", "flexoki-light"))
         self.app.notify("Settings saved.")
         self.app.pop_screen()
 
@@ -610,6 +688,80 @@ class ScraperApp(App):
     """Root TUI application."""
 
     TITLE = "DUCMC Result Scraper"
+
+    CSS = """
+    Screen {
+        background: $background;
+    }
+    Header {
+        background: $panel;
+        color: $foreground;
+    }
+    Footer {
+        background: $panel;
+        color: $foreground;
+    }
+    #subtitle {
+        color: $foreground;
+        padding: 0 1;
+    }
+    ListView {
+        border: solid $accent;
+        background: $surface;
+        scrollbar-color: $accent;
+    }
+    ListView > ListItem {
+        padding: 0 1;
+    }
+    .detail {
+        border: solid $accent;
+        background: $surface;
+        color: $foreground;
+        padding: 1 2;
+    }
+    Input {
+        border: solid $accent;
+        background: $surface;
+    }
+    Input:focus {
+        border: double $accent;
+    }
+    Log {
+        border: solid $accent;
+        background: $surface;
+        height: 1fr;
+    }
+    ProgressBar {
+        margin: 0 1;
+    }
+    #counters {
+        color: $foreground;
+        padding: 0 1;
+    }
+    Checkbox {
+        padding: 0 1;
+    }
+    #taskcols, #examcols {
+        height: 1fr;
+    }
+    #taskcols > #menu, #examleft {
+        width: 60%;
+    }
+    #about, #examinfo {
+        width: 40%;
+    }
+    #runpanel {
+        border: solid $accent;
+        background: $surface;
+        height: auto;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.register_theme(FLEXOKI_LIGHT)
+        self.theme = resolve_theme_name(S.CONFIG.get("theme", "flexoki-light"))
 
     def on_mount(self):
         self.push_screen(TaskScreen())

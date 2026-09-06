@@ -56,6 +56,7 @@ Just run it — no arguments opens the fullscreen TUI (local only):
 - Yazi keys: `j/k` + arrows move, `l`/`→`/`Enter` select, `h`/`←`/`Esc`/`q` back out, `/` focuses the exam filter
 - Runs stream into an in-TUI view (progress bar, ok/skipped/failed counters, log tail); `h` returns when done
 - The TUI owns the screen, so navigation never clutters scrollback — flags bypass it entirely (Colab has no TUI)
+- Theme: `flexoki-light` base with fixed blue accent; `system` follows the terminal palette, `dark` forces dark (Settings → Theme)
 - Single runs offer a fresh restart (skipped on dry runs); batch passes it through per exam
 
 ```bash

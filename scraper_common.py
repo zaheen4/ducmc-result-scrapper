@@ -72,6 +72,7 @@ DEFAULTS = {
     "start_regi": 710,
     "end_regi": 813,
     "request_delay": 1,
+    "theme": "flexoki-light",
 }
 
 
