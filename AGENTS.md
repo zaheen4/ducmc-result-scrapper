@@ -2,37 +2,37 @@
 
 ## What This Is
 
-Three-file Python scraper for DUCMC university exam results:
-- `scraper_common.py` — shared logic (all functions, config, scraping, sheet ops)
-- `result_scrapper.py` — local entry point (Firefox, InquirerPy fuzzy prompts)
+Python scraper for DUCMC university exam results:
+- `scraper_common.py` — engine (all functions, config, scraping, sheet ops)
+- `tui.py` — Textual TUI, local only (navigator + live run view)
+- `result_scrapper.py` — local entry point (TUI on no args, flags bypass)
 - `colab_scrapper.py` — Colab entry point (Chrome, Drive mount, plain `input()`)
 
 Pulls results from the DUCMC portal (Selenium + BeautifulSoup) and writes them into a Google Sheet (gspread).
 
 ## Architecture
 
-`scraper_common.py` holds all shared logic. Each entry point sets environment-specific constants and calls `scraper_common.configure()` + `scraper_common.run()`. No code duplication.
+`scraper_common.py` holds the engine. Entry points set environment-specific constants and call `scraper_common.configure()` + `scraper_common.run()`. The TUI (`tui.py`) calls engine functions directly (per-student progress via `on_event` callback). No code duplication.
 
 ```
-result_scrapper.py  ─┐
-                     ├─► scraper_common.py  ──► Google Sheet + DUCMC Portal
-colab_scrapper.py   ─┘
+result_scrapper.py  ─┬─► tui.py ──┐
+                     │            ├─► scraper_common.py  ──► Google Sheet + DUCMC Portal
+colab_scrapper.py   ─┘            │   (flags path skips tui.py entirely)
+                                  │
+tests/test_tui.py (Pilot) + tests/test_scraper_common.py (unit)
 ```
 
 ## Run
 
 ```bash
-# Local — requires Firefox + geckodriver. No args opens the interactive menu.
+# Local — requires Firefox + geckodriver. No args opens the fullscreen TUI.
 python result_scrapper.py
 
-# Menu tasks: Scrape normal/retake | Update exam data | Settings | Exit
-# Breadth: Single semester | Everything pending | multi-terminal commands
-# | Settings (edits saved config: sheet, session, range, delay)
-# | Update exam data (portal → exam_catalog.json, suggest targets.json adds)
-# Menu loops until Exit; ← Back navigates up; arrows/hjkl + l/Enter, h/Esc for motion
-# (Esc lags ~0.5s from terminal ambiguity — h is instant); exam picker is fuzzy
+# TUI: task → breadth → exam → options → live run view
+# Tasks: scrape normal/retake | update exam data | settings | exit
+# Keys: j/k + arrows move, l/Enter select, h/Esc/q back, / filters the exam list
 
-# Short codes skip the menu: L1T2 normal, L1T2R retake, L1T2R-2024 one year
+# Short codes skip the TUI: L1T2 normal, L1T2R retake, L1T2R-2024 one year
 python result_scrapper.py --exam L3T2
 python result_scrapper.py --retake --retake-exam L1T2R-2024
 
@@ -55,7 +55,7 @@ Pinned in `requirements.txt` (source of truth):
 selenium==4.33.0 gspread==6.2.1 beautifulsoup4==4.13.4 InquirerPy==0.3.4
 ```
 
-Plus `pytest==9.1.1` for tests. (`.env` is hand-parsed — no dotenv dependency.)
+Plus `textual==8.2.8` for the TUI and `pytest==9.1.1` (+ `pytest-asyncio==1.4.0` for Pilot tests) for tests. (`.env` is hand-parsed — no dotenv dependency.)
 
 (Installed at runtime in Colab; must be pre-installed locally, e.g. in `.venv`.)
 
@@ -98,8 +98,8 @@ Scraped reg numbers saved to per-exam progress files, scoped by `(sheet_url, wor
 
 - `data/targets.json` (tracked) maps slot codes → titles for this batch: 6 normals (`L1T1`–`L3T2`), retake slots hold yearly lists
 - `resolve_exam_code()` in `scraper_common.py`: `L1T2` → single title; `L1T2R` → unique or `ExamCodeError` with `L1T2R-YYYY` options; `L1T2R-2024` → one year; missing slots fall back to `exam_catalog.json` search
-- `run_batch()` runs every targets exam for the mode sequentially (per-exam progress, resumable); `--all` flag; menu "Everything pending" calls the same path
-- Menu's "Show multi-terminal commands" prints short-code one-liners
+- `run_batch()` runs every targets exam for the mode sequentially (per-exam progress, resumable); `--all` flag; TUI batch view calls per-target engine runs with the same semantics
+- TUI's breadth screen prints short-code one-liners for multi-terminal runs
 
 ## Retake/Improvement Mode
 
@@ -129,7 +129,7 @@ python result_scrapper.py --retake --dry-run
 
 ## Multi-Terminal Concurrent Scraping
 
-Use short codes (`--exam L1T2`, `--retake --retake-exam L1T2R-2024`) to run multiple terminals concurrently. These set the exam **in memory only** (no disk write to config.json) and each terminal gets its own per-exam progress file. The menu's "Show multi-terminal commands" prints the one-liners for you.
+Use short codes (`--exam L1T2`, `--retake --retake-exam L1T2R-2024`) to run multiple terminals concurrently. These set the exam **in memory only** (no disk write to config.json) and each terminal gets its own per-exam progress file. The TUI's breadth screen prints the one-liners for you.
 
 ```bash
 # Terminal 1 — normal semester

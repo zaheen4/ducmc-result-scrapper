@@ -49,20 +49,13 @@ from scraper_common import (  # noqa: E402
     maybe_resolve_exam_arg,
     run_batch,
     ExamCodeError,
-    interactive_menu,
     _parse_range,
     _short_label,
-    _menu_pick_single,
-    _prompt_list,
-    _prompt_fuzzy,
-    _prompt_confirm,
-    _prompt_input,
     _sync_globals_from_config,
     _ensure_sheet_configured,
     first_run_setup,
     fetch_portal_exams,
     refresh_exam_catalog,
-    update_exam_data,
     _derive_catalog_entry,
     _suggestable,
 )
@@ -1327,7 +1320,9 @@ class TestRunBatch:
              patch('scraper_common.CONFIG', {"google_sheet_url": "http://x"}), \
              patch('scraper_common.FORM_DATA', {"program": "p", "session": "s", "exam": ""}), \
              patch('scraper_common._auto_resolve_worksheet', return_value=None), \
-             patch('scraper_common.main', side_effect=lambda **kw: seen.append(dict(scraper_common.CONFIG))) as mock_main:
+             patch('scraper_common.main',
+                   side_effect=lambda **kw: (seen.append(dict(scraper_common.CONFIG)),
+                                             {"scraped": 1, "skipped": 0, "failed": 0})[1]) as mock_main:
             run_batch(retake=False)
         assert mock_main.call_count == 2
         assert [c["exam"] for c in seen] == ["Normal L1T2", "Normal L2T1"]
@@ -1366,153 +1361,6 @@ class TestMenuHelpers:
             _parse_range("abc", 710, 813)
         with pytest.raises(ValueError):
             _parse_range("813-710", 710, 813)
-
-
-class TestInteractiveMenu:
-    TARGETS = {
-        "normal": {"L1T2": "Normal L1T2 Examination of 2022"},
-        "retake": {"L1T2": ["Retake L1T2 Examination of 2022", "Retake L1T2 Examination of 2023"]},
-    }
-
-    def _base_patches(self):
-        return (
-            patch('scraper_common.CONFIG', {
-                "google_sheet_url": "http://x", "worksheet_name": "ws",
-                "program": "p", "session": "s", "start_regi": 710, "end_regi": 813,
-            }),
-            patch('scraper_common.FORM_DATA', {"program": "p", "session": "s", "exam": ""}),
-            patch('scraper_common.START_REGI', 710),
-            patch('scraper_common.END_REGI', 813),
-            patch('scraper_common.load_targets', return_value=self.TARGETS),
-            patch('scraper_common._auto_resolve_worksheet', return_value=None),
-        )
-
-    def test_single_normal_runs_main(self, capsys):
-        patches = self._base_patches()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Scrape normal semester", "Single semester", "Exit"]), \
-             patch('scraper_common._prompt_fuzzy', return_value="Normal L1T2 Examination of 2022"), \
-             patch('scraper_common._prompt_input', return_value="710-813"), \
-             patch('scraper_common._prompt_confirm', return_value=False), \
-             patch('scraper_common.main') as mock_main:
-            interactive_menu()
-            exam = scraper_common.CONFIG["exam"]
-            sheet_url = scraper_common.GOOGLE_SHEET_URL
-            program = scraper_common.FORM_DATA["program"]
-        mock_main.assert_called_once_with(dry_run=False, reg_num=None)
-        assert exam == "Normal L1T2 Examination of 2022"
-        assert sheet_url == "http://x"
-        assert program == "p"
-        assert "already scraped" in capsys.readouterr().out
-
-    def test_single_retake_dry_run(self):
-        patches = self._base_patches()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Scrape retake / improvement", "Single semester", "Exit"]), \
-             patch('scraper_common._prompt_fuzzy', return_value="Retake L1T2 Examination of 2023"), \
-             patch('scraper_common._prompt_input', return_value="810"), \
-             patch('scraper_common._prompt_confirm', return_value=True) as mock_confirm, \
-             patch('scraper_common.scrape_retake_results') as mock_retake:
-            interactive_menu()
-            retake_exam = scraper_common.CONFIG["retake_exam"]
-        mock_retake.assert_called_once_with(dry_run=True, reg_num=810)
-        assert retake_exam == "Retake L1T2 Examination of 2023"
-        assert mock_confirm.call_count == 1  # fresh prompt skipped on dry run
-
-    def test_single_fresh_clears_progress(self):
-        patches = self._base_patches()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Scrape normal semester", "Single semester", "Exit"]), \
-             patch('scraper_common._prompt_fuzzy', return_value="Normal L1T2 Examination of 2022"), \
-             patch('scraper_common._prompt_input', return_value="710-813"), \
-             patch('scraper_common._prompt_confirm', side_effect=[False, True]), \
-             patch('scraper_common.save_progress') as mock_save, \
-             patch('scraper_common.main') as mock_main:
-            interactive_menu()
-        mock_save.assert_called_once_with([])
-        mock_main.assert_called_once_with(dry_run=False, reg_num=None)
-
-    def test_everything_runs_batch(self):
-        patches = self._base_patches()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Scrape normal semester", "Everything pending (targets.json)", "Exit"]), \
-             patch('scraper_common._prompt_input', return_value="710-813"), \
-             patch('scraper_common._prompt_confirm', side_effect=[False, False, True]), \
-             patch('scraper_common.run_batch') as mock_batch:
-            interactive_menu()
-        mock_batch.assert_called_once_with(retake=False, dry_run=False, fresh=False)
-
-    def test_everything_fresh_passthrough(self):
-        patches = self._base_patches()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Scrape normal semester", "Everything pending (targets.json)", "Exit"]), \
-             patch('scraper_common._prompt_input', return_value="710-813"), \
-             patch('scraper_common._prompt_confirm', side_effect=[False, True, True]), \
-             patch('scraper_common.run_batch') as mock_batch:
-            interactive_menu()
-        mock_batch.assert_called_once_with(retake=False, dry_run=False, fresh=True)
-
-    def test_exit_first_quits_immediately(self):
-        with patch('scraper_common._prompt_list', return_value="Exit"), \
-             patch('scraper_common.main') as mock_main:
-            interactive_menu()
-        mock_main.assert_not_called()
-
-    def test_back_from_scope_returns_to_mode(self):
-        patches = self._base_patches()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Scrape normal semester", "← Back", "Exit"]), \
-             patch('scraper_common.main') as mock_main:
-            interactive_menu()
-        mock_main.assert_not_called()
-
-    def test_back_from_picker_returns_to_mode(self):
-        patches = self._base_patches()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Scrape normal semester", "Single semester", "Exit"]), \
-             patch('scraper_common._prompt_fuzzy', return_value="← Back"), \
-             patch('scraper_common.main') as mock_main:
-            interactive_menu()
-        mock_main.assert_not_called()
-
-    def test_update_from_mode(self):
-        with patch('scraper_common._prompt_list', side_effect=["Update exam data", "Exit"]), \
-             patch('scraper_common.update_exam_data') as mock_update:
-            interactive_menu()
-        mock_update.assert_called_once_with()
-
-    def test_show_commands_prints_one_liners(self, capsys):
-        with patch('scraper_common._prompt_list', side_effect=["Scrape normal semester", "Show multi-terminal commands", "Exit"]), \
-             patch('scraper_common.load_targets', return_value=self.TARGETS):
-            interactive_menu()
-        out = capsys.readouterr().out
-        assert "--exam L1T2" in out
-
-    def test_freeform_code_fallback(self):
-        with patch('scraper_common._prompt_fuzzy', return_value=""), \
-             patch('scraper_common._prompt_input', return_value="L1T2"), \
-             patch('scraper_common.load_targets', return_value=self.TARGETS):
-            title = _menu_pick_single(self.TARGETS["normal"], retake=False)
-        assert title == "Normal L1T2 Examination of 2022"
-
-    def test_picker_back_returns_sentinel(self):
-        with patch('scraper_common._prompt_fuzzy', return_value="← Back"):
-            assert _menu_pick_single(self.TARGETS["normal"], retake=False) == "← Back"
-
-    def test_keypress_back_at_root_quits(self):
-        with patch('scraper_common._prompt_list', return_value=None), \
-             patch('scraper_common.main') as mock_main:
-            interactive_menu()
-        mock_main.assert_not_called()
-
-    def test_keypress_back_in_picker_returns_to_root(self):
-        patches = self._base_patches()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
-             patch('scraper_common._prompt_list', side_effect=["Scrape normal semester", "Single semester", None]), \
-             patch('scraper_common._prompt_fuzzy', return_value=None), \
-             patch('scraper_common.main') as mock_main:
-            interactive_menu()
-        mock_main.assert_not_called()
 
 
 class TestSyncGlobals:
@@ -1573,22 +1421,6 @@ class TestFirstRunSetup:
              patch('scraper_common.save_env'):
             first_run_setup(config)
         assert config["request_delay"] == 4
-
-
-class TestMenuSettings:
-    def test_settings_runs_setup_and_resyncs(self):
-        config = {
-            "google_sheet_url": "http://x", "worksheet_name": "ws",
-            "program": "p", "session": "s", "start_regi": 710, "end_regi": 813,
-        }
-        with patch('scraper_common.CONFIG', config), \
-             patch('scraper_common.FORM_DATA', {"program": "", "session": "", "exam": ""}), \
-             patch('scraper_common._prompt_list', side_effect=["Settings (sheet, session, range, delay)", "Exit"]), \
-             patch('scraper_common.first_run_setup') as mock_setup:
-            interactive_menu()
-            synced_url = scraper_common.GOOGLE_SHEET_URL
-        mock_setup.assert_called_once_with(config)
-        assert synced_url == "http://x"
 
 
 class TestPromptKwargs:
@@ -1711,143 +1543,29 @@ class TestSuggestable:
         assert _suggestable({"name": "B.Sc. X 3rd year 2nd Semester Examination of 2024"}, "2021-2022") is True
 
 
-class TestUpdateExamData:
-    def test_accept_and_reject(self, tmp_path):
-        targets = {"session": "2021-2022",
-                   "normal": {},
-                   "retake": {"L1T2": ["B.Sc. X 1st year 2nd Semester Improvement Examination of 2022 (Retake/Improvement)"]}}
-        with open(os.path.join(str(tmp_path), 'targets.json'), 'w') as f:
-            json.dump(targets, f)
-        new_entries = [
-            {"id": 1, "name": "B.Sc. X 5th year 9th Semester Examination of 2025",
-             "type": "normal", "year": 1, "term": 1, "exam_year": 2025},
-            {"id": 2, "name": "B.Sc. X 1st year 2nd Semester Improvement Examination of 2023 (Retake/Improvement)",
-             "type": "retake", "year": 1, "term": 2, "exam_year": 2023},
+class TestProgressCallback:
+    def _ws(self):
+        ws = MagicMock()
+        ws.get_all_values.return_value = [
+            ["Sl.", "Student's Name", "Student's ID", "Reg. No.", "GPA", "CGPA"],
+            [""] * 6,
+            ["1", "Test", "CS 001", "710", "", ""],
+            ["2", "Test2", "CS 002", "711", "", ""],
         ]
+        return ws
+
+    def test_main_emits_events_and_returns_stats(self, tmp_path):
+        events = []
+        parsed = {'Name': 'T', 'Roll': 'R', 'Reg': '710', 'GPA': '3.0',
+                  'CGPA': '3.0', 'Fail Subs': '', 'courses': []}
         with patch('scraper_common.DATA_DIR', str(tmp_path)), \
-             patch('scraper_common.refresh_exam_catalog', return_value=(new_entries, [])), \
-             patch('scraper_common._prompt_confirm', side_effect=[True, False]):
-            update_exam_data()
-        updated = json.load(open(os.path.join(str(tmp_path), 'targets.json')))
-        assert updated["normal"]["L1T1"] == "B.Sc. X 5th year 9th Semester Examination of 2025"
-        assert updated["retake"]["L1T2"] == ["B.Sc. X 1st year 2nd Semester Improvement Examination of 2022 (Retake/Improvement)"]
-
-    def test_no_new_exams(self, tmp_path):
-        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
-             patch('scraper_common.refresh_exam_catalog', return_value=([], [])):
-            update_exam_data()  # must not crash without targets.json present
-
-    def test_fetch_failure_aborts(self, tmp_path):
-        with patch('scraper_common.DATA_DIR', str(tmp_path)), \
-             patch('scraper_common.refresh_exam_catalog', return_value=None), \
-             patch('scraper_common._prompt_confirm') as mock_confirm:
-            update_exam_data()
-        mock_confirm.assert_not_called()
-
-
-class TestPromptHelpers:
-    def test_helpers_enable_vi_mode(self):
-        import InquirerPy
-        cases = [
-            (_prompt_list, {"message": "m", "choices": ["a"]}, "choice"),
-            (_prompt_fuzzy, {"message": "m", "choices": ["a"]}, "choice"),
-            (_prompt_confirm, {"message": "m"}, "ok"),
-            (_prompt_input, {"message": "m"}, "value"),
-        ]
-        for helper, kwargs, key in cases:
-            with patch.object(InquirerPy, 'prompt', return_value={key: "x"}) as mock_prompt:
-                helper(**kwargs)
-                assert mock_prompt.call_args[1].get("vi_mode") is True
-
-    def test_list_binds_motion_keys(self):
-        import InquirerPy
-        with patch.object(InquirerPy, 'prompt', return_value={"choice": "a"}) as mock_prompt:
-            _prompt_list("m", ["a"])
-            payload = mock_prompt.call_args[0][0][0]
-            assert payload["mandatory"] is False
-            bindings = mock_prompt.call_args[1]["keybindings"]
-            assert {"key": "l"} in bindings["answer"]
-            assert {"key": "enter"} in bindings["answer"]
-            assert {"key": "right"} in bindings["answer"]
-            assert {"key": "h"} in bindings["skip"]
-            assert {"key": "left"} in bindings["skip"]
-            assert {"key": "escape"} in bindings["skip"]
-
-    def test_fuzzy_back_binding(self):
-        import InquirerPy
-        with patch.object(InquirerPy, 'prompt', return_value={"choice": None}) as mock_prompt:
-            assert _prompt_fuzzy("m", ["a"], allow_back=True) is None
-            payload = mock_prompt.call_args[0][0][0]
-            assert payload["mandatory"] is False
-            assert {"key": "escape"} in mock_prompt.call_args[1]["keybindings"]["skip"]
-        with patch.object(InquirerPy, 'prompt', return_value={"choice": "a"}) as mock_prompt:
-            _prompt_fuzzy("m", ["a"])
-            assert "mandatory" not in mock_prompt.call_args[0][0][0]
-
-
-class TestAltScreen:
-    def test_no_tty_is_silent(self, capsys):
-        import scraper_common as mod
-        with mod._alt_screen() as active:
-            assert active is False
-        assert capsys.readouterr().out == ""
-
-    def test_tty_emits_switch_codes(self, capsys):
-        import scraper_common as mod
-
-        class FakeStdout:
-            def __init__(self):
-                self.buf = ""
-
-            def isatty(self):
-                return True
-
-            def write(self, s):
-                self.buf += s
-
-            def flush(self):
-                pass
-
-        fake = FakeStdout()
-        with patch.object(sys, 'stdout', fake):
-            with mod._alt_screen() as active:
-                assert active is True
-        assert fake.buf == "\x1b[?1049h\x1b[?1049l"
-
-    def test_dumb_term_is_silent(self, capsys):
-        import scraper_common as mod
-
-        class FakeStdout:
-            def isatty(self):
-                return True
-
-            def write(self, s):
-                raise AssertionError("must not write")
-
-            def flush(self):
-                pass
-
-        with patch.object(sys, 'stdout', FakeStdout()), \
-             patch.dict(os.environ, {"TERM": "dumb"}):
-            with mod._alt_screen() as active:
-                assert active is False
-
-    def test_choice_name(self):
-        import scraper_common as mod
-        choices = [{"name": "L1T2 — Foo", "value": "Title Foo"}, "plain"]
-        assert mod._choice_name(choices, "Title Foo") == "L1T2 — Foo"
-        assert mod._choice_name(choices, "plain") == "plain"
-        assert mod._choice_name(choices, None) is None
-        assert mod._choice_name(choices, "missing") == "missing"
-
-    def test_list_echoes_answer(self, capsys):
-        import InquirerPy
-        with patch.object(InquirerPy, 'prompt', return_value={"choice": "b"}):
-            assert _prompt_list("Pick?", [{"name": "Bee", "value": "b"}]) == "b"
-        assert "? Pick? → Bee" in capsys.readouterr().out
-
-    def test_back_echoes(self, capsys):
-        import InquirerPy
-        with patch.object(InquirerPy, 'prompt', return_value={"choice": None}):
-            assert _prompt_list("Pick?", ["a"]) is None
-        assert "(back)" in capsys.readouterr().out
+             patch('scraper_common.START_REGI', 710), \
+             patch('scraper_common.END_REGI', 711), \
+             patch('scraper_common.REQUEST_DELAY', 0), \
+             patch('scraper_common.get_worksheet', return_value=self._ws()), \
+             patch('scraper_common.initialize_webdriver', return_value=MagicMock()), \
+             patch('scraper_common.scrape_student_result', side_effect=[parsed, None]), \
+             patch('scraper_common.format_gpa_cgpa_columns'):
+            stats = main(dry_run=True, on_event=events.append)
+        assert events == ["ok", "fail"]
+        assert stats["scraped"] == 1 and stats["failed"] == 1

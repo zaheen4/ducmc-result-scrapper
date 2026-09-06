@@ -446,6 +446,7 @@ def run_batch(retake=False, dry_run=False, reg_num=None, fresh=False, log=False)
         _setup_log_file()
 
     ts(f"--- Batch mode: {len(items)} exam(s), {'retake' if retake else 'normal'} ---")
+    totals = {"ok": 0, "skipped": 0, "failed": 0}
     try:
         for slot, title in items:
             ts(f"\n===== [{slot}] {title} =====")
@@ -457,13 +458,18 @@ def run_batch(retake=False, dry_run=False, reg_num=None, fresh=False, log=False)
                     save_progress([])
                 ts("[INFO] Progress cleared — starting fresh.")
             if retake:
-                scrape_retake_results(dry_run=dry_run, reg_num=reg_num)
+                stats = scrape_retake_results(dry_run=dry_run, reg_num=reg_num)
+                totals["ok"] += stats["updated"] + stats["unchanged"]
             else:
-                main(dry_run=dry_run, reg_num=reg_num)
+                stats = main(dry_run=dry_run, reg_num=reg_num)
+                totals["ok"] += stats["scraped"]
+            totals["skipped"] += stats["skipped"]
+            totals["failed"] += stats["failed"]
     finally:
         if LOG_FILE:
             LOG_FILE.close()
-    ts("\n--- Batch complete ---")
+    ts(f"\n--- Batch complete: ok={totals['ok']} skipped={totals['skipped']} failed={totals['failed']} ---")
+    return totals
 
 
 CSE_PROGRAM_ID = 14
@@ -571,44 +577,6 @@ def _suggestable(entry, targets_session):
     if session_mark and targets_session and session_mark.group(1) != targets_session:
         return False
     return True
-
-
-def update_exam_data():
-    """Menu entry: refresh catalog from portal, then offer targets additions."""
-    result = refresh_exam_catalog()
-    if result is None:
-        return
-    new_entries, _ = result
-    if not new_entries:
-        ts("Catalog is up to date.")
-        return
-    targets = load_targets()
-    session = targets.get('session', '')
-    changed = False
-    for entry in sorted(new_entries, key=lambda e: e['id']):
-        if not _suggestable(entry, session):
-            ts(f"  Skipping (not this batch): [{entry['id']}] {entry['name']}")
-            continue
-        slot = f"L{entry['year']}T{entry['term']}"
-        retake = entry['type'] == 'retake'
-        code = slot + ('R' if retake else '')
-        section = targets.setdefault('retake' if retake else 'normal', {})
-        existing = section.get(slot)
-        existing_list = existing if isinstance(existing, list) else ([existing] if existing else [])
-        if entry['name'] in existing_list:
-            continue
-        if existing and not retake:
-            ts(f"  Slot {slot} already has an exam — edit targets.json manually to replace it.")
-            continue
-        if _prompt_confirm(f"Add to targets as {code} — {_short_label(entry['name'])}?", default=False):
-            if retake:
-                section[slot] = sorted(existing_list + [entry['name']], key=_exam_year_of)
-            else:
-                section[slot] = entry['name']
-            changed = True
-    if changed:
-        save_targets(targets)
-        ts("✅ targets.json updated.")
 
 
 def _batch_update_with_retry(worksheet, requests, value_input_option='RAW', max_retries=5):
@@ -1492,11 +1460,13 @@ def _get_retake_progress_file():
     return os.path.join(DATA_DIR, 'progress_retake.json')
 
 
-def scrape_retake_results(dry_run=False, reg_num=None):
+def scrape_retake_results(dry_run=False, reg_num=None, on_event=None):
     """Main retake scraping loop.
 
     Fetches retake/improvement results and updates PerCourse sheets with
     improved grades. Uses separate progress tracking from normal mode.
+    on_event(kind) is called per student with 'skip', 'ok', or 'fail'.
+    Returns the stats dict.
     """
     start_time = time.time()
 
@@ -1547,6 +1517,8 @@ def scrape_retake_results(dry_run=False, reg_num=None):
             if reg_str in scraped_list:
                 ts(f"[SKIP] Reg {reg_str} already scraped (from progress file)")
                 stats["skipped"] += 1
+                if on_event:
+                    on_event("skip")
                 continue
 
             ts(f"\n--- Processing Registration No.: {reg_str} ---")
@@ -1618,6 +1590,8 @@ def scrape_retake_results(dry_run=False, reg_num=None):
                         except Exception:
                             ts(f"Could not open worksheet '{target_sheet_name}'. Skipping.")
                             stats["failed"] += 1
+                            if on_event:
+                                on_event("fail")
                             scraped_list.append(reg_str)
                             if not dry_run:
                                 _save_retake_progress(scraped_list)
@@ -1641,6 +1615,8 @@ def scrape_retake_results(dry_run=False, reg_num=None):
                                 stats["updated"] += 1
                             else:
                                 stats["unchanged"] += 1
+                            if on_event:
+                                on_event("ok")
 
                 scraped_list.append(reg_str)
                 if not dry_run:
@@ -1648,11 +1624,15 @@ def scrape_retake_results(dry_run=False, reg_num=None):
             elif parsed_data and not parsed_data.get('courses'):
                 ts(f"No retake courses found for Reg {reg_str}. Student may not have taken this retake.")
                 stats["unchanged"] += 1
+                if on_event:
+                    on_event("ok")
                 scraped_list.append(reg_str)
                 if not dry_run:
                     _save_retake_progress(scraped_list)
             else:
                 stats["failed"] += 1
+                if on_event:
+                    on_event("fail")
 
             if REQUEST_DELAY > 0 and regi_num < end_regi:
                 time.sleep(REQUEST_DELAY)
@@ -1681,10 +1661,15 @@ def scrape_retake_results(dry_run=False, reg_num=None):
     ts(f"Skipped (already done): {stats['skipped']}")
     ts(f"Failed: {stats['failed']}")
     ts(f"Total time: {minutes}m {seconds}s")
+    return stats
 
 
-def main(dry_run=False, reg_num=None):
-    """Main execution function to run the scraper and update the sheet."""
+def main(dry_run=False, reg_num=None, on_event=None):
+    """Main execution function to run the scraper and update the sheet.
+
+    on_event(kind) is called per student with 'skip', 'ok', or 'fail'
+    (for live progress displays). Returns the stats dict.
+    """
     start_time = time.time()
 
     if reg_num:
@@ -1728,6 +1713,8 @@ def main(dry_run=False, reg_num=None):
             if reg_str in scraped_list:
                 ts(f"[SKIP] Reg {reg_str} already scraped (from progress file)")
                 stats["skipped"] += 1
+                if on_event:
+                    on_event("skip")
                 continue
 
             parsed_data = scrape_student_result(driver, reg_str)
@@ -1750,8 +1737,12 @@ def main(dry_run=False, reg_num=None):
                 if not dry_run:
                     save_progress(scraped_list)
                 stats["scraped"] += 1
+                if on_event:
+                    on_event("ok")
             else:
                 stats["failed"] += 1
+                if on_event:
+                    on_event("fail")
 
             if REQUEST_DELAY > 0 and regi_num < end_regi:
                 time.sleep(REQUEST_DELAY)
@@ -1780,6 +1771,7 @@ def main(dry_run=False, reg_num=None):
     ts(f"Skipped (already done): {stats['skipped']}")
     ts(f"Failed: {stats['failed']}")
     ts(f"Total time: {minutes}m {seconds}s")
+    return stats
 
 
 # ===================================================================
@@ -1928,67 +1920,6 @@ def _alt_screen():
         yield False
 
 
-def _choice_name(choices, value):
-    """Finds the display label for a picked choice value (None if backed out)."""
-    if value is None:
-        return None
-    for choice in choices:
-        if isinstance(choice, dict) and choice.get("value") == value:
-            return str(choice.get("name", value))
-    return str(value)
-
-
-def _echo_answer(message, answer):
-    """Prints one answered-prompt line (the context InquirerPy echoes inline)."""
-    ts(f"? {message} → {answer if answer is not None else '(back)'}")
-
-
-def _prompt_list(message, choices):
-    from InquirerPy import prompt as _prompt
-    with _alt_screen():
-        answers = _prompt([{"type": "list", "name": "choice", "message": message,
-                            "choices": choices, "mandatory": False}],
-                          vi_mode=True, keybindings=LIST_NAV_KEYS)
-    choice = answers["choice"]  # None means backed out
-    _echo_answer(message, _choice_name(choices, choice))
-    return choice
-
-
-def _prompt_fuzzy(message, choices, allow_back=False):
-    """Filter-as-you-type picker (Yazi-find style) for longer choice lists."""
-    from InquirerPy import prompt as _prompt
-    question = {"type": "fuzzy", "name": "choice", "message": message, "choices": choices}
-    keybindings = None
-    if allow_back:
-        question["mandatory"] = False
-        keybindings = {"skip": [{"key": "escape"}]}
-    with _alt_screen():
-        answers = _prompt([question], vi_mode=True, keybindings=keybindings)
-    choice = answers["choice"]
-    _echo_answer(message, _choice_name(choices, choice))
-    return choice
-
-
-def _prompt_confirm(message, default=False):
-    from InquirerPy import prompt as _prompt
-    with _alt_screen():
-        answers = _prompt([{"type": "confirm", "name": "ok", "message": message, "default": default}],
-                          vi_mode=True)
-    result = bool(answers["ok"])
-    _echo_answer(message, "Yes" if result else "No")
-    return result
-
-
-def _prompt_input(message, default=""):
-    from InquirerPy import prompt as _prompt
-    with _alt_screen():
-        answers = _prompt([{"type": "input", "name": "value", "message": message, "default": str(default)}],
-                          vi_mode=True)
-    value = answers["value"].strip()
-    _echo_answer(message, value)
-    return value
-
-
 def _parse_range(text, default_start, default_end):
     """Parses '710-813' or '810' into (start, end); raises ValueError."""
     text = (text or "").strip()
@@ -2005,28 +1936,6 @@ def _parse_range(text, default_start, default_end):
     raise ValueError(f"Could not parse range '{text}' (e.g. 710-813).")
 
 
-def _print_parallel_commands(section, retake):
-    """Prints copy-paste one-liners for multi-terminal concurrent scraping."""
-    ts("\nPaste one per terminal:\n")
-    for slot, value in section.items():
-        titles = value if isinstance(value, list) else [value]
-        for title in titles:
-            code = slot + ('R' if retake else '')
-            if len(titles) > 1:
-                code += f"-{_exam_year_of(title)}"
-            flag = "--retake --retake-exam" if retake else "--exam"
-            ts(f"  {sys.executable} result_scrapper.py {flag} {code}")
-    ts("")
-
-
-def _print_resume_status(retake, start, end):
-    """Shows already-scraped vs remaining counts for the current target."""
-    scraped = _load_retake_progress() if retake else load_progress()
-    total = end - start + 1
-    done = len([r for r in scraped if start <= int(r) <= end])
-    ts(f"  Progress: {done} of {total} already scraped ({total - done} remaining)")
-
-
 def _ensure_sheet_configured():
     """Runs first-run setup if sheet URL or worksheet is missing (exits on cancel)."""
     if not CONFIG.get("google_sheet_url") or not CONFIG.get("worksheet_name"):
@@ -2036,41 +1945,6 @@ def _ensure_sheet_configured():
             ts("\nSetup cancelled.")
             sys.exit(1)
         _sync_globals_from_config()
-
-
-def total_target_exams(section):
-    """Counts individual exam titles in a targets section (lists hold yearly retakes)."""
-    return sum(len(v) if isinstance(v, list) else 1 for v in section.values())
-
-
-def _menu_pick_single(section, retake, crumbs=""):
-    """Returns one exam title: fuzzy slot picker (+ free-form code fallback).
-
-    Returns BACK when the user backs out.
-    """
-    choices = []
-    for slot, value in section.items():
-        titles = value if isinstance(value, list) else [value]
-        for title in titles:
-            code = slot + ('R' if retake else '')
-            if len(titles) > 1:
-                code += f"-{_exam_year_of(title)}"
-            choices.append({"name": f"{code} — {_short_label(title)}", "value": title})
-    choices.append({"name": "Other exam code… (e.g. L4T1, L1T2R-2022)", "value": ""})
-    choices.append({"name": BACK, "value": BACK})
-    if crumbs:
-        ts(f"--- {crumbs} ---")
-    picked = _prompt_fuzzy("Which semester? (type to filter)" + NAV_HINT, choices, allow_back=True)
-    if picked == BACK or picked is None:
-        return BACK
-    if picked:
-        return picked
-    while True:
-        code = _prompt_input("Exam code")
-        try:
-            return resolve_exam_code(code, retake=retake)
-        except ExamCodeError as e:
-            ts(f"[ERROR] {e}")
 
 
 def _sync_globals_from_config():
@@ -2087,131 +1961,6 @@ def _sync_globals_from_config():
         REQUEST_DELAY = int(CONFIG.get("request_delay", REQUEST_DELAY))  # pyright: ignore[reportConstantRedefinition]
     except (TypeError, ValueError):
         ts(f"[WARN] Invalid request_delay {CONFIG.get('request_delay')!r} — keeping {REQUEST_DELAY}s.")
-
-
-BACK = "← Back"
-
-NAV_HINT = " (←→↑↓ hjkl · Enter select · h back)"
-
-# Extra keys merged onto InquirerPy's builtin list actions (Yazi-style motion).
-# Custom entries replace the builtin key list per action, so defaults are
-# re-specified. Arrows only on list prompts — fuzzy/input keep cursor motion.
-LIST_NAV_KEYS = {
-    "answer": [{"key": "enter"}, {"key": "l"}, {"key": "right"}],
-    "skip": [{"key": "h"}, {"key": "left"}, {"key": "escape"}],
-}
-
-
-def _print_menu_header():
-    """Prints the menu banner (re-rendered each loop so Settings edits show)."""
-    ts("--- DUCMC Result Scraper ---")
-    ts(f"  Sheet:     {CONFIG.get('google_sheet_url') or '(not set)'}")
-    ts(f"  Session:   {CONFIG.get('session')}")
-    ts(f"  Reg range: {CONFIG.get('start_regi')}–{CONFIG.get('end_regi')}\n")
-
-
-def interactive_menu():
-    """Looping guided flow: task -> breadth -> exam -> range -> run. Exit quits."""
-    global START_REGI, END_REGI
-    _sync_globals_from_config()
-
-    while True:
-        _print_menu_header()
-        task = _prompt_list("What to do?" + NAV_HINT, [
-            "Scrape normal semester",
-            "Scrape retake / improvement",
-            "Update exam data",
-            "Settings (sheet, session, range, delay)",
-            "Exit",
-        ])
-        if task is None or task == "Exit":
-            return
-        if task == "Update exam data":
-            update_exam_data()
-            continue
-        if task.startswith("Settings"):
-            try:
-                first_run_setup(CONFIG)
-            except (KeyboardInterrupt, EOFError):
-                ts("\nCancelled.")
-                continue
-            _sync_globals_from_config()
-            ts("✅ Settings saved.")
-            continue
-
-        retake = task.startswith("Scrape retake")
-        crumbs = task
-        scope = _prompt_list(f"Which exams? — {crumbs}" + NAV_HINT, [
-            "Single semester",
-            "Everything pending (targets.json)",
-            "Show multi-terminal commands",
-            BACK,
-        ])
-        if scope is None or scope == BACK:
-            continue
-        crumbs += f" › {scope}"
-
-        targets = load_targets()
-        section = targets.get('retake' if retake else 'normal', {})
-
-        if scope.startswith("Show"):
-            if not section:
-                ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
-                continue
-            _print_parallel_commands(section, retake)
-            continue
-
-        if not section:
-            ts(f"No {'retake' if retake else 'normal'} targets in targets.json.")
-            continue
-
-        _ensure_sheet_configured()
-
-        single_title = None
-        if scope.startswith("Single"):
-            single_title = _menu_pick_single(section, retake, crumbs)
-            if single_title == BACK:
-                continue
-            _set_target_context(single_title, retake)
-            crumbs += f" › {single_title}"
-
-        while True:
-            try:
-                start, end = _parse_range(
-                    _prompt_input("Reg range", f"{CONFIG.get('start_regi')}-{CONFIG.get('end_regi')}"),
-                    CONFIG.get('start_regi'), CONFIG.get('end_regi'))
-                break
-            except ValueError as e:
-                ts(f"[ERROR] {e}")
-        if single_title is not None:
-            _print_resume_status(retake, start, end)
-        dry_run = _prompt_confirm("Dry run (no sheet writes)?", default=False)
-        fresh = False
-        if not dry_run:
-            fresh = _prompt_confirm("Ignore saved progress and start fresh?", default=False)
-
-        CONFIG["start_regi"] = start
-        CONFIG["end_regi"] = end
-        START_REGI = start  # pyright: ignore[reportConstantRedefinition]
-        END_REGI = end  # pyright: ignore[reportConstantRedefinition]
-
-        ts(f"--- {crumbs} ---")
-        if single_title is not None:
-            if fresh:
-                if retake:
-                    _save_retake_progress([])
-                else:
-                    save_progress([])
-                ts("[INFO] Progress cleared — starting fresh.")
-            if retake:
-                scrape_retake_results(dry_run=dry_run, reg_num=start if start == end else None)
-            else:
-                main(dry_run=dry_run, reg_num=start if start == end else None)
-        else:
-            if not _prompt_confirm(f"Run {total_target_exams(section)} {'retake' if retake else 'normal'} exams?", default=False):
-                ts("Cancelled.")
-                continue
-            run_batch(retake=retake, dry_run=dry_run, fresh=fresh)
 
 
 # ===================================================================
@@ -2259,16 +2008,16 @@ def run():
 
     if len(sys.argv) == 1 and USE_INQUIRERPY:
         try:
-            from InquirerPy import prompt  # noqa: F401
-        except ImportError:
-            ts("[ERROR] InquirerPy not installed — use CLI flags (see --help).")
+            from tui import run_tui
+        except ImportError as e:
+            ts(f"[ERROR] TUI unavailable ({e}) — use CLI flags (see --help).")
             return
         try:
-            interactive_menu()
+            run_tui()
         except (KeyboardInterrupt, EOFError):
             ts("\nCancelled.")
         except Exception as e:
-            ts(f"\n[ERROR] Menu failed: {e}")
+            ts(f"\n[ERROR] TUI failed: {e}")
         return
 
     RETAKE_MODE = args.retake  # pyright: ignore[reportConstantRedefinition]

@@ -4,12 +4,13 @@ Selenium scraper that pulls student exam results from the DUCMC results portal i
 
 ## Architecture
 
-Three files, zero duplication:
+Four files, zero duplication:
 
 | File | Role | Environment |
 |------|------|-------------|
-| `scraper_common.py` | All shared logic | — |
-| `result_scrapper.py` | Entry point (Firefox, InquirerPy) | Local |
+| `scraper_common.py` | All shared logic (engine) | — |
+| `tui.py` | Textual TUI (navigator + run view) | Local |
+| `result_scrapper.py` | Entry point (TUI, or flags bypass) | Local |
 | `colab_scrapper.py` | Entry point (Chrome, Drive mount) | Colab |
 
 ## Requirements
@@ -29,7 +30,7 @@ Three files, zero duplication:
 
 2. Place `credentials.json` in the project root.
 
-3. Run — on first launch, you'll be prompted for Sheet URL, worksheet name, and reg range:
+3. Run — on first launch, the TUI opens on setup (Sheet URL, worksheet, reg range):
 
    ```bash
    .venv/bin/python result_scrapper.py
@@ -49,20 +50,19 @@ Three files, zero duplication:
 
 ## Usage
 
-Just run it — no arguments opens a guided menu that loops until you quit:
+Just run it — no arguments opens the fullscreen TUI (local only):
 
-- Task (scrape normal / retake, update data, settings) → breadth → exam → range → dry-run → fresh
-- `j/k` + arrows navigate, `l`/`→`/`Enter` select, `h`/`←` go back (`Esc` works but lags ~0.5s — terminal ambiguity, prefer `h`); exam picker filters as you type
-- Menu prompts render on the terminal's alternate screen, so navigation never clutters scrollback — only headers, answers, and scrape output stay (TTY only; pipes/logs unaffected)
-- Single runs show resume status and offer a fresh restart (skipped on dry runs)
-The menu's `Settings` item edits the saved config (sheet, session, range, delay);
-first run triggers the same setup automatically.
+- Task (scrape normal / retake, update data, settings) → breadth → exam → options → live run view
+- Yazi keys: `j/k` + arrows move, `l`/`→`/`Enter` select, `h`/`←`/`Esc`/`q` back out, `/` focuses the exam filter
+- Runs stream into an in-TUI view (progress bar, ok/skipped/failed counters, log tail); `h` returns when done
+- The TUI owns the screen, so navigation never clutters scrollback — flags bypass it entirely (Colab has no TUI)
+- Single runs offer a fresh restart (skipped on dry runs); batch passes it through per exam
 
 ```bash
 .venv/bin/python result_scrapper.py
 ```
 
-Short codes skip the menu entirely (`L1T2` normal, `L1T2R` retake, `L1T2R-2024` one year):
+Short codes skip the TUI entirely (`L1T2` normal, `L1T2R` retake, `L1T2R-2024` one year):
 
 ```bash
 # Single semester
@@ -145,7 +145,7 @@ Basic flags (see `--help`). Everything else lives under "advanced options".
 Anything missing from `targets.json` falls back to an `exam_catalog.json` search
 (same disambiguation rules). `data/targets.json` holds this batch's exams:
 6 normals (`L1T1`–`L3T2`) plus every yearly retake per slot — edit it when
-sharing with juniors or when new exams publish. The menu's **Update exam data**
+sharing with juniors or when new exams publish. The TUI's **Update exam data**
 does both jobs: it refreshes `exam_catalog.json` from the portal (plain HTTPS,
 no browser) and offers each new exam for confirmation into `targets.json`.
 
@@ -183,6 +183,10 @@ Course columns and `Retake Courses` are auto-created from the first scraped resu
 .venv/bin/python -m pytest tests/ -v
 ```
 
+Unit tests live in `tests/test_scraper_common.py`; TUI navigation tests
+(`tests/test_tui.py`) drive the app headlessly via Textual Pilot
+(`pytest.ini` sets `asyncio_mode = auto`).
+
 ## Retake/Improvement Mode
 
 Use `--retake` to scrape retake/improvement exam results (only course grades, no GPA/CGPA on portal).
@@ -206,7 +210,7 @@ Use `--retake` to scrape retake/improvement exam results (only course grades, no
 
 ## Multi-Terminal Concurrent Scraping
 
-Run multiple terminals for different semesters using short codes (in memory only, config untouched, per-exam progress files). The menu's "Show multi-terminal commands" prints these for you.
+Run multiple terminals for different semesters using short codes (in memory only, config untouched, per-exam progress files). The TUI's breadth screen prints these for you.
 
 ```bash
 # Terminal 1
@@ -228,7 +232,7 @@ Run multiple terminals for different semesters using short codes (in memory only
 | File | Description |
 |---|---|
 | `data/config.json` | Runtime configuration (gitignored) |
-| `data/targets.json` | This batch's exams (slot codes → titles) — drives menu, codes, `--all` |
+| `data/targets.json` | This batch's exams (slot codes → titles) — drives TUI, codes, `--all` |
 | `data/progress_{hash}.json` | Per-exam scrape progress — auto-resumed on restart (gitignored) |
 | `data/cse_credit_hours.json` | Credit hours for all CSE courses — used for GPA recalculation |
 | `data/exam_catalog.json` | All CSE exams, sessions, and metadata scraped from portal — used for `--exam`/`--retake-exam` |
