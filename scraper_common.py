@@ -1508,7 +1508,7 @@ def scrape_retake_results(dry_run=False, reg_num=None, regs=None, on_event=None)
 
     spreadsheet = get_spreadsheet()
     if not spreadsheet:
-        return
+        return stats
 
     driver = initialize_webdriver()
 
@@ -1691,6 +1691,7 @@ def main(dry_run=False, reg_num=None, regs=None, on_event=None):
         end_regi = END_REGI
 
     targets, label = _reg_targets(regs, reg_num, start_regi, end_regi)
+    stats = {"scraped": 0, "skipped": 0, "failed": 0}
     if not targets:
         ts("[INFO] No reg numbers to scrape.")
         return stats
@@ -1700,11 +1701,11 @@ def main(dry_run=False, reg_num=None, regs=None, on_event=None):
 
     worksheet = get_worksheet()
     if not worksheet:
-        return
+        return stats
 
     header_indices, all_reg_numbers_in_sheet, course_name_map, all_sheet_values, has_course_columns, has_retake_column = get_sheet_data(worksheet)
     if not header_indices:
-        return
+        return stats
 
     scraped_list = load_progress()
     total = len(targets)
@@ -1719,7 +1720,6 @@ def main(dry_run=False, reg_num=None, regs=None, on_event=None):
 
     driver = initialize_webdriver()
 
-    stats = {"scraped": 0, "skipped": 0, "failed": 0}
     course_setup_done = has_course_columns
     interrupted = False
 
